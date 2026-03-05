@@ -4,7 +4,6 @@
 @import './tokens.css';
 @import './theme.css';
 @import './journal.css';
-@import './print.css';
 
 * {
   box-sizing: border-box;

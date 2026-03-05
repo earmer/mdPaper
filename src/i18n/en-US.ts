@@ -99,9 +99,6 @@ const enUS = {
   },
   export: {
     dialogTitle: 'Export PDF',
-    engine: 'Engine',
-    enginePaged: 'Paged Print Engine (Recommended)',
-    engineCanvas: 'Canvas Engine',
     paperSize: 'Paper Size',
     paperA4: 'A4',
     paperLetter: 'Letter',
@@ -131,8 +128,6 @@ const enUS = {
     success: 'Export complete',
     failed: 'Export failed',
     filenamePrefix: 'manuscript',
-    printHint: 'Paged engine opens browser print flow. Choose "Save as PDF".',
-    canvasHint: 'Canvas engine downloads PDF directly. Use Paged for complex pagination.',
   },
   preview: {
     title: 'Live Preview',

@@ -100,9 +100,6 @@ const zhCN = {
   },
   export: {
     dialogTitle: '导出 PDF',
-    engine: '导出引擎',
-    enginePaged: 'Paged 打印引擎（推荐）',
-    engineCanvas: 'Canvas 渲染引擎',
     paperSize: '纸张大小',
     paperA4: 'A4',
     paperLetter: 'Letter',
@@ -132,8 +129,6 @@ const zhCN = {
     success: '导出完成',
     failed: '导出失败',
     filenamePrefix: '论文',
-    printHint: 'Paged 引擎将打开浏览器打印流程，请选择“保存为 PDF”。',
-    canvasHint: 'Canvas 引擎会直接生成下载文件，复杂分页场景建议使用 Paged。',
   },
   preview: {
     title: '实时预览',

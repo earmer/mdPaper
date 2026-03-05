@@ -106,7 +106,6 @@ a = \arg\max_{a \in \mathcal{A}} Q(s, a)
 
 本文给出一种轻量、可部署、无后端依赖的期刊 PDF 工具实现路径，适用于课程论文、会议初稿与快速投稿排版。`,
   exportSetting: {
-    engine: 'paged',
     paperSize: 'A4',
     normalizeHeadings: true,
     fontSize: 10.8,

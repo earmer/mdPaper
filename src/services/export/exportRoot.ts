@@ -52,22 +52,6 @@ const waitForFontsReady = async (): Promise<void> => {
   }
 };
 
-const normalizeDisplayMathBlocks = (article: HTMLElement): void => {
-  const formulaBlocks = Array.from(
-    article.querySelectorAll<HTMLElement>('.katex-display-block'),
-  );
-
-  for (const block of formulaBlocks) {
-    const display = block.querySelector<HTMLElement>('.katex-display');
-    if (display === null || display === undefined) {
-      continue;
-    }
-
-    display.style.removeProperty('font-size');
-    block.classList.remove('katex-display-block--scaled');
-  }
-};
-
 const createIsolatedExportRoot = (
   sourceArticle: HTMLElement,
   paperSize: PaperSize,
@@ -102,11 +86,9 @@ export const waitForExportRenderReady = async (article: HTMLElement): Promise<vo
   await nextTick();
   await nextTick();
   await waitForFontsReady();
-  normalizeDisplayMathBlocks(article);
 
   const images = Array.from(article.querySelectorAll<HTMLImageElement>('img'));
   await Promise.allSettled(images.map((img) => waitForImageReady(img)));
-  normalizeDisplayMathBlocks(article);
   await nextTick();
 };
 

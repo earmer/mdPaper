@@ -11,6 +11,7 @@ import { useI18n } from 'vue-i18n';
 import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { renderMarkdown } from '@/services/markdown/md';
 import { computeSharedPagination } from '@/services/pagination/sharedPagination';
+import { buildPageLabel } from '@/services/export/helpers';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import {
   formatAffiliationLine,
@@ -79,19 +80,6 @@ const pageTrackStyle = computed(() => {
   };
 });
 
-const normalizeDisplayMathBlocks = (root: HTMLElement): void => {
-  const blocks = Array.from(root.querySelectorAll<HTMLElement>('.katex-display-block'));
-  blocks.forEach((block) => {
-    const display = block.querySelector<HTMLElement>('.katex-display');
-    if (display === null) {
-      return;
-    }
-
-    display.style.fontSize = '1em';
-    block.classList.remove('katex-display-block--scaled');
-  });
-};
-
 const currentPageBottomMaskHeight = computed(() => {
   const pageHeight = pageHeightPx.value;
   const pageTopInset = pageTopInsetPx.value;
@@ -115,6 +103,16 @@ const pageIndicatorText = computed(() =>
   t('preview.pageOf', { page: currentPage.value, total: pageCount.value }),
 );
 
+const previewFooterPageLabel = computed(() =>
+  buildPageLabel(store.locale, currentPage.value, pageCount.value),
+);
+
+const shouldShowPreviewPageNumber = computed(
+  () =>
+    store.exportSetting.headerFooter.showFooter
+    && store.exportSetting.headerFooter.showPageNumber,
+);
+
 const articleStyle = computed(() => ({
   '--body-font-size': `${store.exportSetting.fontSize}pt`,
   '--body-line-height': `${store.exportSetting.lineHeight}`,
@@ -136,8 +134,6 @@ const waitForPreviewAssets = async (): Promise<void> => {
   if (root === null) {
     return;
   }
-
-  normalizeDisplayMathBlocks(root);
 
   const fontSet = (document as Document & { fonts?: FontFaceSet }).fonts;
   if (fontSet !== undefined) {
@@ -179,8 +175,6 @@ const waitForPreviewAssets = async (): Promise<void> => {
       });
     }),
   );
-
-  normalizeDisplayMathBlocks(root);
 };
 
 const recalculatePagination = (): void => {
@@ -430,6 +424,13 @@ onBeforeUnmount(() => {
             :style="pageBottomMaskStyle"
             aria-hidden="true"
           />
+          <div
+            v-if="shouldShowPreviewPageNumber"
+            class="journal-export-page-number"
+            aria-hidden="true"
+          >
+            {{ previewFooterPageLabel }}
+          </div>
         </div>
       </div>
     </div>

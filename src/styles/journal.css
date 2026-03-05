@@ -536,6 +536,19 @@ body.theme-dark .preview-pane__stage {
   z-index: 1;
 }
 
+.journal-export-page-number {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3.8mm;
+  text-align: center;
+  color: #3f3f46;
+  font-size: 8.6pt;
+  font-family: var(--font-times), var(--font-cjk);
+  pointer-events: none;
+  z-index: 3;
+}
+
 .journal-page {
   position: relative;
   width: 210mm;

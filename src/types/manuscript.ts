@@ -1,5 +1,4 @@
 export type ThemeMode = 'light' | 'dark';
-export type ExportEngine = 'paged' | 'canvas';
 export type PaperSize = 'A4' | 'Letter';
 export type LocaleType = 'zh-CN' | 'en-US';
 
@@ -57,7 +56,6 @@ export interface ImageOption {
 export type ImageAssetMap = Record<string, string>;
 
 export interface ExportSetting {
-  engine: ExportEngine;
   paperSize: PaperSize;
   normalizeHeadings: boolean;
   fontSize: number;

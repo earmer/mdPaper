@@ -22,11 +22,6 @@ const { width } = useWindowSize();
 
 const isMobile = computed(() => width.value < 1100);
 
-const engineOptions = computed(() => [
-  { label: t('export.enginePaged'), value: 'paged' },
-  { label: t('export.engineCanvas'), value: 'canvas' },
-]);
-
 const paperOptions = computed(() => [
   { label: t('export.paperA4'), value: 'A4' },
   { label: t('export.paperLetter'), value: 'Letter' },
@@ -113,10 +108,6 @@ const saveDraftOnUnload = (): void => {
           <TTabPanel value="export" :label="t('nav.export')">
             <div class="panel-scroll">
               <TForm label-align="top">
-                <TFormItem :label="t('export.engine')">
-                  <TSelect v-model="store.exportSetting.engine" :options="engineOptions" />
-                </TFormItem>
-
                 <TFormItem :label="t('export.paperSize')">
                   <TSelect v-model="store.exportSetting.paperSize" :options="paperOptions" />
                 </TFormItem>

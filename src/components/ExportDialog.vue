@@ -26,11 +26,6 @@ const dialogVisible = computed({
   set: (value: boolean) => emit('update:visible', value),
 });
 
-const engineOptions = computed(() => [
-  { label: t('export.enginePaged'), value: 'paged' },
-  { label: t('export.engineCanvas'), value: 'canvas' },
-]);
-
 const paperOptions = computed(() => [
   { label: t('export.paperA4'), value: 'A4' },
   { label: t('export.paperLetter'), value: 'Letter' },
@@ -109,17 +104,6 @@ const handleExport = async (): Promise<void> => {
   >
     <div class="export-dialog">
       <TForm label-align="top">
-        <TCard size="small" :title="t('export.engine')">
-          <TSpace direction="vertical" style="width: 100%" size="10px">
-            <TSelect v-model="store.exportSetting.engine" :options="engineOptions" />
-            <TTypography>
-              {{
-                store.exportSetting.engine === 'paged' ? t('export.printHint') : t('export.canvasHint')
-              }}
-            </TTypography>
-          </TSpace>
-        </TCard>
-
         <TCard size="small" :title="t('export.paperSize')">
           <TSpace direction="vertical" style="width: 100%" size="10px">
             <TSelect v-model="store.exportSetting.paperSize" :options="paperOptions" />

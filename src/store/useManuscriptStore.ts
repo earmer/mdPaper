@@ -4,7 +4,6 @@ import { sampleManuscript } from '@/data/sampleManuscript';
 import type {
   Affiliation,
   Author,
-  ExportEngine,
   ExportSetting,
   FundingItem,
   ImageAssetMap,
@@ -136,9 +135,6 @@ export const useManuscriptStore = defineStore('manuscript', {
     },
     setTheme(theme: ThemeMode): void {
       this.theme = theme;
-    },
-    setExportEngine(engine: ExportEngine): void {
-      this.exportSetting.engine = engine;
     },
     resetToSample(): void {
       const data = cloneSample();
