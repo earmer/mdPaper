@@ -99,6 +99,8 @@ const createEmptyMetadata = (): ManuscriptMeta => ({
       country: '',
     },
   ],
+  correspondingAuthorId: '',
+  correspondingAuthorContact: '',
   fundings: [],
 });
 
@@ -108,15 +110,26 @@ const normalizeMetadata = (metadata: Partial<ManuscriptMeta> | undefined): Manus
     return fallback;
   }
 
+  const authors = Array.isArray(metadata.authors) ? metadata.authors : fallback.authors;
+  const affiliations = Array.isArray(metadata.affiliations)
+    ? metadata.affiliations
+    : fallback.affiliations;
+  const correspondingAuthorIdRaw =
+    typeof metadata.correspondingAuthorId === 'string' ? metadata.correspondingAuthorId : '';
+  const hasCorrespondingAuthor = authors.some((author) => author.id === correspondingAuthorIdRaw);
+
   return {
     title: metadata.title ?? '',
     subtitle: metadata.subtitle ?? '',
     abstract: metadata.abstract ?? '',
     keywords: Array.isArray(metadata.keywords) ? metadata.keywords : [],
-    authors: Array.isArray(metadata.authors) ? metadata.authors : fallback.authors,
-    affiliations: Array.isArray(metadata.affiliations)
-      ? metadata.affiliations
-      : fallback.affiliations,
+    authors,
+    affiliations,
+    correspondingAuthorId: hasCorrespondingAuthor ? correspondingAuthorIdRaw : '',
+    correspondingAuthorContact:
+      typeof metadata.correspondingAuthorContact === 'string'
+        ? metadata.correspondingAuthorContact
+        : '',
     fundings: Array.isArray(metadata.fundings) ? metadata.fundings : [],
   };
 };
@@ -167,6 +180,9 @@ export const useManuscriptStore = defineStore('manuscript', {
     },
     removeAuthor(authorId: string): void {
       this.metadata.authors = this.metadata.authors.filter((item) => item.id !== authorId);
+      if (this.metadata.correspondingAuthorId === authorId) {
+        this.metadata.correspondingAuthorId = '';
+      }
     },
     addAffiliation(): void {
       const affiliation: Affiliation = {

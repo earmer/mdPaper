@@ -29,12 +29,37 @@ const renderedHtml = computed(() =>
 );
 
 const authorLineHtml = computed(() =>
-  formatAuthorAffiliation(store.metadata.authors, store.metadata.affiliations).join('， '),
+  formatAuthorAffiliation(
+    store.metadata.authors,
+    store.metadata.affiliations,
+    store.metadata.correspondingAuthorId,
+  ).join('， '),
 );
 
 const affiliationLines = computed(() =>
   store.metadata.affiliations.map((item, index) => formatAffiliationLine(item, index)),
 );
+
+const correspondingAuthorLine = computed(() => {
+  const selectedAuthor = store.metadata.authors.find(
+    (author) => author.id === store.metadata.correspondingAuthorId,
+  );
+  if (selectedAuthor === undefined) {
+    return '';
+  }
+
+  const displayName = selectedAuthor.name.trim() || selectedAuthor.nameEn.trim();
+  if (displayName.length === 0) {
+    return '';
+  }
+
+  const contact = store.metadata.correspondingAuthorContact.trim();
+  if (contact.length === 0) {
+    return `* ${t('preview.correspondingAuthor')}: ${displayName}`;
+  }
+
+  return `* ${t('preview.correspondingAuthor')}: ${displayName} (${contact})`;
+});
 
 const keywordLine = computed(() =>
   store.metadata.keywords
@@ -395,6 +420,10 @@ onBeforeUnmount(() => {
                   <div class="journal-affiliations">
                     <p v-for="line in affiliationLines" :key="line">{{ line }}</p>
                   </div>
+
+                  <p v-if="correspondingAuthorLine" class="journal-corresponding-author">
+                    {{ correspondingAuthorLine }}
+                  </p>
 
                   <div v-if="store.metadata.fundings.length > 0" class="journal-funding">
                     <strong>{{ t('preview.fundings') }}：</strong>

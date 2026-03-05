@@ -15,6 +15,13 @@ const affiliationOptions = computed(() =>
   })),
 );
 
+const correspondingAuthorOptions = computed(() =>
+  store.metadata.authors.map((author, index) => ({
+    label: author.name.trim() || author.nameEn.trim() || `${t('form.authors')} ${index + 1}`,
+    value: author.id,
+  })),
+);
+
 const resetSample = (): void => {
   store.resetToSample();
   MessagePlugin.success(t('app.loadedSample'));
@@ -166,6 +173,23 @@ const fillExportFixture = (): void => {
             </template>
             {{ t('form.addAuthor') }}
           </TButton>
+        </TSpace>
+      </TFormItem>
+
+      <TFormItem :label="t('form.correspondingAuthor')">
+        <TSpace direction="vertical" style="width: 100%" size="10px">
+          <TSelect
+            v-model="store.metadata.correspondingAuthorId"
+            :placeholder="t('form.correspondingAuthorPlaceholder')"
+            :options="correspondingAuthorOptions"
+            clearable
+          />
+          <TInput
+            v-model="store.metadata.correspondingAuthorContact"
+            :label="t('form.correspondingAuthorContact')"
+            :placeholder="t('form.correspondingAuthorContactPlaceholder')"
+            clearable
+          />
         </TSpace>
       </TFormItem>
 

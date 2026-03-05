@@ -42,6 +42,8 @@ export const exportRegressionFixture: ExportRegressionFixture = {
         country: 'United States',
       },
     ],
+    correspondingAuthorId: 'fixture-author-2',
+    correspondingAuthorContact: 'ting.zhao@example.edu',
     fundings: [
       {
         id: 'fixture-funding-1',

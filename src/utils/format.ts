@@ -4,14 +4,17 @@ import type { Affiliation, Author } from '@/types/manuscript';
 export const formatAuthorAffiliation = (
   authors: Author[],
   affiliations: Affiliation[],
+  correspondingAuthorId: string,
 ): string[] => {
   const indexMap = new Map(affiliations.map((item, index) => [item.id, index + 1]));
 
   return authors.map((author) => {
-    const superscript = author.affiliationIds
+    const affiliationSuperscript = author.affiliationIds
       .map((id) => indexMap.get(id))
       .filter((value): value is number => value !== undefined)
       .join(',');
+    const correspondingMarker = author.id === correspondingAuthorId ? '*' : '';
+    const superscript = `${affiliationSuperscript}${correspondingMarker}`;
 
     return superscript.length > 0 ? `${author.name}<sup>${superscript}</sup>` : author.name;
   });

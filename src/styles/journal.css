@@ -648,6 +648,13 @@ body.canvas-exporting .journal-page-header-static {
   margin: 2px 0;
 }
 
+.journal-corresponding-author {
+  margin: 4pt 0 0;
+  text-align: center;
+  color: #27272a;
+  font-size: 9.3pt;
+}
+
 .journal-funding {
   margin-top: 6pt;
   font-size: 9.6pt;

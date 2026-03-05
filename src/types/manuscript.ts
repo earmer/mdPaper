@@ -29,6 +29,8 @@ export interface ManuscriptMeta {
   keywords: string[];
   authors: Author[];
   affiliations: Affiliation[];
+  correspondingAuthorId: string;
+  correspondingAuthorContact: string;
   fundings: FundingItem[];
 }
 

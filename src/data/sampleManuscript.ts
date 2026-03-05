@@ -47,6 +47,8 @@ export const sampleManuscript: ManuscriptDraft = {
         country: '中国',
       },
     ],
+    correspondingAuthorId: 'author-2',
+    correspondingAuthorContact: 'na.li@example.edu.cn',
     fundings: [
       {
         id: 'fund-1',
