@@ -1,28 +1,147 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560">
-  <rect width="1280" height="560" fill="#ffffff" />
-  <rect x="40" y="48" width="1200" height="464" fill="#fafafa" stroke="#52525b" stroke-width="2" />
-  <line x1="120" y1="110" x2="1160" y2="110" stroke="#27272a" stroke-width="2" />
-  <text x="120" y="95" fill="#27272a" font-size="28" font-family="Times New Roman, serif">Export Regression Layout</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="diagramTitle diagramDesc">
+  <title id="diagramTitle">mdPaper Runtime Flow</title>
+  <desc id="diagramDesc">Code-aligned flow from editor input and Pinia store to shared preview pagination and isolated canvas PDF export.</desc>
 
-  <rect x="120" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
-  <rect x="490" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
-  <rect x="860" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
-  <text x="145" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">Preview</text>
-  <text x="525" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">Export Root</text>
-  <text x="925" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">PDF</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#eef2ff" />
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155" />
+    </marker>
 
-  <line x1="420" y1="193" x2="490" y2="193" stroke="#3f3f46" stroke-width="3" />
-  <polygon points="490,193 474,183 474,203" fill="#3f3f46" />
-  <line x1="790" y1="193" x2="860" y2="193" stroke="#3f3f46" stroke-width="3" />
-  <polygon points="860,193 844,183 844,203" fill="#3f3f46" />
+    <style>
+      .title { font: 700 31px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 15px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .lane { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.6; }
+      .lane-title { font: 700 19px 'Segoe UI', Arial, sans-serif; fill: #1e293b; }
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.6; }
+      .box-title { font: 700 16px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+      .box-body { font: 500 13.2px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #334155; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .arrow-dashed { stroke: #334155; stroke-width: 2.1; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrow); }
+      .arrow-label { font: 600 12.5px 'Segoe UI', Arial, sans-serif; fill: #334155; }
+      .note { fill: #eff6ff; stroke: #93c5fd; stroke-width: 1.4; }
+      .note-text { font: 600 13px 'Segoe UI', Arial, sans-serif; fill: #1d4ed8; }
+      .output { fill: #ecfeff; stroke: #0891b2; stroke-width: 1.8; }
+      .output-text { font: 700 14px 'Segoe UI', Arial, sans-serif; fill: #0f172a; }
+    </style>
+  </defs>
 
-  <rect x="120" y="286" width="500" height="180" fill="#ffffff" stroke="#a1a1aa" />
-  <text x="144" y="328" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- heading keep with first paragraph</text>
-  <text x="144" y="366" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- figure/table/math avoid hard split</text>
-  <text x="144" y="404" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- orphans / widows >= 3</text>
+  <rect x="0" y="0" width="1280" height="760" fill="url(#bg)" />
 
-  <rect x="680" y="286" width="480" height="180" fill="#ffffff" stroke="#a1a1aa" />
-  <text x="706" y="328" fill="#27272a" font-size="25" font-family="Times New Roman, serif">line-height: 1.42</text>
-  <text x="706" y="366" fill="#27272a" font-size="25" font-family="Times New Roman, serif">font-size: 10.8pt</text>
-  <text x="706" y="404" fill="#27272a" font-size="25" font-family="Times New Roman, serif">serif + restrained grayscale</text>
+  <text class="title" x="40" y="54">mdPaper Runtime Flow (Based on Current Code)</text>
+  <text class="subtitle" x="40" y="80">Meta + Markdown input -> unified preview root -> isolated canvas export -> PDF output</text>
+
+  <rect class="lane" x="30" y="98" width="390" height="632" rx="16" />
+  <rect class="lane" x="435" y="98" width="390" height="632" rx="16" />
+  <rect class="lane" x="840" y="98" width="410" height="632" rx="16" />
+
+  <text class="lane-title" x="50" y="130">Input + State Layer</text>
+  <text class="lane-title" x="455" y="130">Preview Rendering Layer</text>
+  <text class="lane-title" x="860" y="130">Export Pipeline Layer</text>
+
+  <rect class="box" x="55" y="145" width="340" height="108" rx="12" />
+  <text class="box-title" x="74" y="171">1) MetaForm + MarkdownEditor</text>
+  <text class="box-body" x="74" y="194">
+    <tspan x="74" dy="0">- Updates manuscript metadata and markdown content.</tspan>
+    <tspan x="74" dy="19">- Reactive changes propagate through Pinia store state.</tspan>
+  </text>
+
+  <rect class="box" x="55" y="272" width="340" height="130" rx="12" />
+  <text class="box-title" x="74" y="298">2) Image Asset Ingestion</text>
+  <text class="box-body" x="74" y="321">
+    <tspan x="74" dy="0">- Drop/paste/url -> compressImage / fileToDataUrl.</tspan>
+    <tspan x="74" dy="19">- store.addImageAsset(dataUrl) creates mdasset:&lt;id&gt;.</tspan>
+    <tspan x="74" dy="19">- Markdown keeps stable asset tokens.</tspan>
+  </text>
+
+  <rect class="box" x="55" y="420" width="340" height="200" rx="12" />
+  <text class="box-title" x="74" y="446">3) Pinia Store: useManuscriptStore</text>
+  <text class="box-body" x="74" y="469">
+    <tspan x="74" dy="0">- metadata, content, exportSetting, imageAssets.</tspan>
+    <tspan x="74" dy="19">- remoteImageUrls parses markdown HTTP image links.</tspan>
+    <tspan x="74" dy="19">- saveDraft/loadDraft with localStorage.</tspan>
+    <tspan x="74" dy="19">- resetToSample/loadExportFixture for regression data.</tspan>
+  </text>
+
+  <rect class="box" x="460" y="145" width="340" height="190" rx="12" />
+  <text class="box-title" x="479" y="171">4) Markdown Rendering: renderMarkdown()</text>
+  <text class="box-body" x="479" y="194">
+    <tspan x="479" dy="0">- normalizeMathInMarkdown(source).</tspan>
+    <tspan x="479" dy="19">- markdown-it + KaTeX + highlight.js.</tspan>
+    <tspan x="479" dy="19">- Normalize captions/references/headings.</tspan>
+    <tspan x="479" dy="19">- sanitizeHtml (DOMPurify) for safe output.</tspan>
+    <tspan x="479" dy="19">- resolveImageSrc maps mdasset ids to data URLs.</tspan>
+  </text>
+
+  <rect class="box" x="460" y="360" width="340" height="212" rx="12" />
+  <text class="box-title" x="479" y="386">5) PreviewPane (#journal-print-root)</text>
+  <text class="box-body" x="479" y="409">
+    <tspan x="479" dy="0">- Combines front matter + rendered markdown HTML.</tspan>
+    <tspan x="479" dy="19">- waitForPreviewAssets settles fonts and images.</tspan>
+    <tspan x="479" dy="19">- computeSharedPagination(root, paper, margins).</tspan>
+    <tspan x="479" dy="19">- pageOffsets drive paged viewport and masks.</tspan>
+  </text>
+
+  <rect class="box" x="865" y="145" width="360" height="130" rx="12" />
+  <text class="box-title" x="884" y="171">6) ExportDialog</text>
+  <text class="box-body" x="884" y="194">
+    <tspan x="884" dy="0">- Checks store.remoteImageUrls before export.</tspan>
+    <tspan x="884" dy="19">- Optional remote URL -> data URL asset conversion.</tspan>
+    <tspan x="884" dy="19">- Calls exportPdf(payload).</tspan>
+  </text>
+
+  <rect class="box" x="865" y="296" width="360" height="170" rx="12" />
+  <text class="box-title" x="884" y="322">7) exportByCanvas() / exportRoot</text>
+  <text class="box-body" x="884" y="345">
+    <tspan x="884" dy="0">- withIsolatedExportRoot clones preview article DOM.</tspan>
+    <tspan x="884" dy="19">- applyLayoutVars + waitForExportRenderReady.</tspan>
+    <tspan x="884" dy="19">- applySharedPaginationBreaks inserts page-break spacers.</tspan>
+    <tspan x="884" dy="19">- Expected page count derived from shared pagination.</tspan>
+  </text>
+
+  <rect class="box" x="865" y="490" width="360" height="166" rx="12" />
+  <text class="box-title" x="884" y="516">8) html2pdf.js + jsPDF Post-process</text>
+  <text class="box-body" x="884" y="539">
+    <tspan x="884" dy="0">- html2canvas(scale=2, useCORS=true) rasterization.</tspan>
+    <tspan x="884" dy="19">- removeLeadingBlankPage / removeTrailingBlankPages.</tspan>
+    <tspan x="884" dy="19">- trimPagesToExpectedCount.</tspan>
+    <tspan x="884" dy="19">- drawHeaderFooter + buildPageLabel(Page N), then save.</tspan>
+  </text>
+
+  <rect class="note" x="460" y="590" width="340" height="66" rx="10" />
+  <text class="note-text" x="478" y="616">Shared pagination strategy is reused by both</text>
+  <text class="note-text" x="478" y="636">preview visualization and export page breaks.</text>
+
+  <rect class="output" x="963" y="674" width="164" height="38" rx="10" />
+  <text class="output-text" x="986" y="698">Output: PDF File</text>
+
+  <line class="arrow" x1="225" y1="253" x2="225" y2="272" />
+  <line class="arrow" x1="225" y1="402" x2="225" y2="420" />
+
+  <line class="arrow" x1="395" y1="510" x2="460" y2="244" />
+  <text class="arrow-label" x="404" y="366">content + resolveImageSrc</text>
+
+  <line class="arrow" x1="395" y1="560" x2="460" y2="467" />
+  <text class="arrow-label" x="401" y="532">metadata + export settings</text>
+
+  <line class="arrow" x1="630" y1="335" x2="630" y2="360" />
+  <text class="arrow-label" x="638" y="352">renderedHtml</text>
+
+  <line class="arrow" x1="395" y1="465" x2="865" y2="208" />
+  <text class="arrow-label" x="601" y="322">remoteImageUrls + export options</text>
+
+  <line class="arrow" x1="1045" y1="275" x2="1045" y2="296" />
+  <text class="arrow-label" x="1053" y="290">start export</text>
+
+  <line class="arrow" x1="800" y1="466" x2="865" y2="382" />
+  <text class="arrow-label" x="738" y="420">articleElement</text>
+
+  <line class="arrow-dashed" x1="800" y1="622" x2="865" y2="396" />
+  <text class="arrow-label" x="690" y="605">sharedPagination.ts rules</text>
+
+  <line class="arrow" x1="1045" y1="466" x2="1045" y2="490" />
+  <line class="arrow" x1="1045" y1="656" x2="1045" y2="674" />
 </svg>
