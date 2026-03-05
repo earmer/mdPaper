@@ -40,6 +40,7 @@ export interface SharedPaginationResult {
 }
 
 const EXPORT_BREAK_ATTR = 'data-shared-page-break';
+const EXPORT_BREAK_SPACER_ATTR = 'data-shared-page-break-spacer';
 
 const getPaperSizeMeta = (paperSize: PaperSize): PaperSizeMeta =>
   paperSize === 'A4'
@@ -484,6 +485,11 @@ export const clearSharedPaginationBreaks = (root: HTMLElement): void => {
     target.style.removeProperty('break-before');
     target.style.removeProperty('page-break-before');
   });
+
+  const spacers = root.querySelectorAll<HTMLElement>(`[${EXPORT_BREAK_SPACER_ATTR}]`);
+  spacers.forEach((spacer) => {
+    spacer.remove();
+  });
 };
 
 export const applySharedPaginationBreaks = (input: SharedPaginationInput): SharedPaginationResult => {
@@ -526,13 +532,22 @@ export const applySharedPaginationBreaks = (input: SharedPaginationInput): Share
       (item) => item.top >= breakTop - 0.5 && !marked.has(item.block),
     )?.block;
     const target = containing ?? following;
-    if (target === undefined || marked.has(target)) {
+    if (target === undefined || marked.has(target) || target.parentElement === null) {
       return;
     }
 
-    target.setAttribute(EXPORT_BREAK_ATTR, '1');
-    target.style.breakBefore = 'page';
-    target.style.pageBreakBefore = 'always';
+    const spacer = document.createElement('div');
+    spacer.setAttribute(EXPORT_BREAK_SPACER_ATTR, '1');
+    spacer.setAttribute(EXPORT_BREAK_ATTR, '1');
+    spacer.setAttribute('aria-hidden', 'true');
+    spacer.style.height = `${input.marginsTopMm}mm`;
+    spacer.style.margin = '0';
+    spacer.style.padding = '0';
+    spacer.style.border = '0';
+    spacer.style.breakBefore = 'page';
+    spacer.style.pageBreakBefore = 'always';
+
+    target.parentElement.insertBefore(spacer, target);
     marked.add(target);
   });
 

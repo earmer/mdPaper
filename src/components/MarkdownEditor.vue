@@ -426,7 +426,7 @@ const onDragLeave = (event: DragEvent): void => {
     @dragover.capture.prevent="onDragOver"
     @dragleave.capture.prevent="onDragLeave"
   >
-    <TAlert theme="info" :message="t('form.dropHint')" close />
+    <TAlert theme="info" :message="t('form.dropHint')" close-btn />
 
     <TForm label-align="top">
       <TFormItem class="markdown-editor__content-item">
