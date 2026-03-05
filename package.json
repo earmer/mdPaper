@@ -40,5 +40,10 @@
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vue-tsc": "^3.1.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "markdown-it-katex>katex": "0.16.33"
+    }
   }
 }

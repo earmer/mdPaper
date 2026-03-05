@@ -80,12 +80,26 @@ const pageTopMaskStyle = computed(() => ({
 }));
 
 const pageTrackStyle = computed(() => {
-  const offset = pageOffsets.value[currentPage.value - 1] ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
+  const offset = pageOffsets.value[currentPage.value - 1]
+    ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
   const roundedOffset = Math.round(offset);
   return {
-    transform: `translateY(-${roundedOffset}px)`,
+    top: `-${roundedOffset}px`,
   };
 });
+
+const normalizeDisplayMathBlocks = (root: HTMLElement): void => {
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>('.katex-display-block'));
+  blocks.forEach((block) => {
+    const display = block.querySelector<HTMLElement>('.katex-display');
+    if (display === null) {
+      return;
+    }
+
+    display.style.fontSize = '1em';
+    block.classList.remove('katex-display-block--scaled');
+  });
+};
 
 const currentPageBottomMaskHeight = computed(() => {
   const start =
@@ -128,9 +142,15 @@ const waitForPreviewAssets = async (): Promise<void> => {
     return;
   }
 
+  normalizeDisplayMathBlocks(root);
+
   const fontSet = (document as Document & { fonts?: FontFaceSet }).fonts;
   if (fontSet !== undefined) {
     try {
+      await Promise.allSettled([
+        fontSet.load('1em KaTeX_Main'),
+        fontSet.load('1em KaTeX_Math'),
+      ]);
       await fontSet.ready;
     } catch {
       // ignore font readiness failures for preview
@@ -164,6 +184,8 @@ const waitForPreviewAssets = async (): Promise<void> => {
       });
     }),
   );
+
+  normalizeDisplayMathBlocks(root);
 };
 
 const measureTotalContentHeight = (root: HTMLElement, rootRect: DOMRect): number => {

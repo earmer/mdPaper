@@ -42,6 +42,10 @@ const waitForFontsReady = async (): Promise<void> => {
   }
 
   try {
+    await Promise.allSettled([
+      fontSet.load('1em KaTeX_Main'),
+      fontSet.load('1em KaTeX_Math'),
+    ]);
     await fontSet.ready;
   } catch {
     // ignore font readiness failures and continue export
