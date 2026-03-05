@@ -32,11 +32,6 @@ const paperOptions = computed(() => [
   { label: t('export.paperLetter'), value: 'Letter' },
 ]);
 
-const columnOptions = computed(() => [
-  { label: t('export.singleColumn'), value: 1 },
-  { label: t('export.doubleColumn'), value: 2, disabled: store.hasLongFormulaBlock },
-]);
-
 const saveDraftDebounced = debounce(() => {
   if (store.enableDraftPersistence) {
     store.saveDraft();
@@ -108,7 +103,7 @@ const saveDraftOnUnload = (): void => {
 
     <TContent class="app-main">
       <aside class="app-main__left">
-        <TTabs v-model="activeTab" size="medium">
+        <TTabs v-model="activeTab" class="app-main__tabs" size="medium">
           <TTabPanel value="meta" :label="t('nav.meta')">
             <MetaForm />
           </TTabPanel>
@@ -124,13 +119,6 @@ const saveDraftOnUnload = (): void => {
 
                 <TFormItem :label="t('export.paperSize')">
                   <TSelect v-model="store.exportSetting.paperSize" :options="paperOptions" />
-                </TFormItem>
-
-                <TFormItem :label="t('export.columns')">
-                  <TSelect v-model="store.exportSetting.columns" :options="columnOptions" />
-                  <p v-if="store.hasLongFormulaBlock" class="export-lock-tip">
-                    {{ t('export.formulaSingleColumnLock') }}
-                  </p>
                 </TFormItem>
 
                 <TFormItem :label="t('export.normalizeHeadings')">

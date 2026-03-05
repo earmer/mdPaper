@@ -57,12 +57,10 @@ export interface ImageOption {
 export interface ExportSetting {
   engine: ExportEngine;
   paperSize: PaperSize;
-  columns: 1 | 2;
   normalizeHeadings: boolean;
   fontSize: number;
   lineHeight: number;
   paragraphIndent: number;
-  columnGap: number;
   margins: MarginSetting;
   headerFooter: HeaderFooterSetting;
 }

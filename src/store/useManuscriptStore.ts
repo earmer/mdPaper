@@ -20,13 +20,12 @@ const LOCKED_EXPORT_LAYOUT = {
   fontSize: 10.8,
   lineHeight: 1.42,
   paragraphIndent: 2,
-  columnGap: 8,
   normalizeHeadings: true,
   margins: {
-    top: 18,
-    right: 18,
-    bottom: 20,
-    left: 18,
+    top: 25,
+    right: 25,
+    bottom: 25,
+    left: 25,
   },
 } as const;
 
@@ -34,7 +33,6 @@ interface StoreState {
   locale: LocaleType;
   theme: ThemeMode;
   enableDraftPersistence: boolean;
-  hasLongFormulaBlock: boolean;
   metadata: ManuscriptMeta;
   content: string;
   exportSetting: ExportSetting;
@@ -45,7 +43,6 @@ const applyLockedExportLayout = (setting: ExportSetting): void => {
   setting.fontSize = LOCKED_EXPORT_LAYOUT.fontSize;
   setting.lineHeight = LOCKED_EXPORT_LAYOUT.lineHeight;
   setting.paragraphIndent = LOCKED_EXPORT_LAYOUT.paragraphIndent;
-  setting.columnGap = LOCKED_EXPORT_LAYOUT.columnGap;
   setting.normalizeHeadings = LOCKED_EXPORT_LAYOUT.normalizeHeadings;
   setting.margins = { ...LOCKED_EXPORT_LAYOUT.margins };
 };
@@ -57,7 +54,6 @@ const cloneSample = (): StoreState => {
     locale: data.locale as LocaleType,
     theme: data.theme,
     enableDraftPersistence: data.enableDraftPersistence,
-    hasLongFormulaBlock: false,
     metadata: data.metadata,
     content: data.content,
     exportSetting: data.exportSetting,
@@ -98,6 +94,25 @@ const createEmptyMetadata = (): ManuscriptMeta => ({
   fundings: [],
 });
 
+const normalizeMetadata = (metadata: Partial<ManuscriptMeta> | undefined): ManuscriptMeta => {
+  const fallback = createEmptyMetadata();
+  if (metadata === undefined) {
+    return fallback;
+  }
+
+  return {
+    title: metadata.title ?? '',
+    subtitle: metadata.subtitle ?? '',
+    abstract: metadata.abstract ?? '',
+    keywords: Array.isArray(metadata.keywords) ? metadata.keywords : [],
+    authors: Array.isArray(metadata.authors) ? metadata.authors : fallback.authors,
+    affiliations: Array.isArray(metadata.affiliations)
+      ? metadata.affiliations
+      : fallback.affiliations,
+    fundings: Array.isArray(metadata.fundings) ? metadata.fundings : [],
+  };
+};
+
 export const useManuscriptStore = defineStore('manuscript', {
   state: (): StoreState => cloneSample(),
   getters: {
@@ -116,15 +131,11 @@ export const useManuscriptStore = defineStore('manuscript', {
     setExportEngine(engine: ExportEngine): void {
       this.exportSetting.engine = engine;
     },
-    setLongFormulaBlock(value: boolean): void {
-      this.hasLongFormulaBlock = value;
-    },
     resetToSample(): void {
       const data = cloneSample();
       this.locale = data.locale;
       this.theme = data.theme;
       this.enableDraftPersistence = data.enableDraftPersistence;
-      this.hasLongFormulaBlock = false;
       this.metadata = data.metadata;
       this.content = data.content;
       this.exportSetting = data.exportSetting;
@@ -132,9 +143,8 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.imageOption = data.imageOption;
     },
     loadExportFixture(): void {
-      this.metadata = structuredClone(exportRegressionFixture.metadata);
+      this.metadata = normalizeMetadata(structuredClone(exportRegressionFixture.metadata));
       this.content = exportRegressionFixture.content;
-      this.hasLongFormulaBlock = false;
       applyLockedExportLayout(this.exportSetting);
     },
     addAuthor(): void {
@@ -221,7 +231,7 @@ export const useManuscriptStore = defineStore('manuscript', {
         this.locale = (parsed.locale ?? 'zh-CN') as LocaleType;
         this.theme = (parsed.theme ?? 'light') as ThemeMode;
         this.enableDraftPersistence = parsed.enableDraftPersistence ?? true;
-        this.metadata = parsed.metadata;
+        this.metadata = normalizeMetadata(parsed.metadata as Partial<ManuscriptMeta>);
         this.content = parsed.content;
         this.exportSetting = parsed.exportSetting;
         applyLockedExportLayout(this.exportSetting);
@@ -240,7 +250,6 @@ export const useManuscriptStore = defineStore('manuscript', {
     clearAllInputs(): void {
       this.metadata = createEmptyMetadata();
       this.content = '';
-      this.hasLongFormulaBlock = false;
 
       if (this.enableDraftPersistence) {
         this.saveDraft();

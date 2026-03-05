@@ -7,7 +7,6 @@ import {
   ref,
   watch,
 } from 'vue';
-import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
 import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { renderMarkdown } from '@/services/markdown/md';
@@ -34,6 +33,13 @@ const affiliationLines = computed(() =>
   store.metadata.affiliations.map((item, index) => formatAffiliationLine(item, index)),
 );
 
+const keywordLine = computed(() =>
+  store.metadata.keywords
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .join('; '),
+);
+
 const paperLabel = computed(() =>
   store.exportSetting.paperSize === 'A4' ? t('preview.paperA4') : t('preview.paperLetter'),
 );
@@ -43,10 +49,11 @@ const currentPage = ref(1);
 const pageCount = ref(1);
 const pageHeightPx = ref(0);
 const pageOffsets = ref<number[]>([0]);
-const formulaAutoLockedNotified = ref(false);
 
 let resizeObserver: ResizeObserver | null = null;
 let resizeRafId: number | null = null;
+let imageEventAbortController: AbortController | null = null;
+let settleRecalculateTimeoutId: number | null = null;
 
 const paperSizeMeta = computed(() =>
   store.exportSetting.paperSize === 'A4'
@@ -66,17 +73,29 @@ const pageTrackStyle = computed(() => {
   };
 });
 
+const currentPageBottomMaskHeight = computed(() => {
+  const start =
+    pageOffsets.value[currentPage.value - 1]
+    ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
+  const nextStart = pageOffsets.value[currentPage.value] ?? start + pageHeightPx.value;
+  const visibleHeight = Math.max(0, Math.min(pageHeightPx.value, nextStart - start));
+  const maskHeight = pageHeightPx.value - visibleHeight;
+
+  return maskHeight > 0.5 ? maskHeight : 0;
+});
+
+const pageBottomMaskStyle = computed(() => ({
+  height: `${currentPageBottomMaskHeight.value}px`,
+}));
+
 const pageIndicatorText = computed(() =>
   t('preview.pageOf', { page: currentPage.value, total: pageCount.value }),
 );
-
-const forceSingleColumnByFormula = computed(() => store.hasLongFormulaBlock);
 
 const articleStyle = computed(() => ({
   '--body-font-size': `${store.exportSetting.fontSize}pt`,
   '--body-line-height': `${store.exportSetting.lineHeight}`,
   '--body-paragraph-indent': `${store.exportSetting.paragraphIndent}em`,
-  '--body-column-gap': `${store.exportSetting.columnGap}mm`,
   '--paper-margin-top': `${store.exportSetting.margins.top}mm`,
   '--paper-margin-right': `${store.exportSetting.margins.right}mm`,
   '--paper-margin-bottom': `${store.exportSetting.margins.bottom}mm`,
@@ -164,40 +183,178 @@ interface BlockRange {
   top: number;
   bottom: number;
   height: number;
+  strict: boolean;
 }
 
-const collectAvoidBlockRanges = (root: HTMLElement, rootRect: DOMRect): BlockRange[] => {
-  const selectors = [
-    '.markdown-body h2',
-    '.markdown-body h3',
-    '.markdown-body .md-figure',
-    '.markdown-body table',
-    '.markdown-body pre',
-    '.markdown-body .katex-display-block',
-    '.markdown-body blockquote',
-  ].join(', ');
+interface HeadingBindingRange {
+  top: number;
+  keepUntil: number;
+}
 
-  const nodes = Array.from(root.querySelectorAll<HTMLElement>(selectors));
-  return nodes
-    .map((node) => {
+interface ParagraphRange {
+  top: number;
+  bottom: number;
+  height: number;
+  minSplitHeight: number;
+}
+
+const resolveElementLineHeight = (element: HTMLElement): number => {
+  const computedStyle = window.getComputedStyle(element);
+  const parsedLineHeight = Number.parseFloat(computedStyle.lineHeight);
+  if (Number.isFinite(parsedLineHeight) && parsedLineHeight > 0) {
+    return parsedLineHeight;
+  }
+
+  const parsedFontSize = Number.parseFloat(computedStyle.fontSize);
+  if (Number.isFinite(parsedFontSize) && parsedFontSize > 0) {
+    return parsedFontSize * 1.5;
+  }
+
+  return 18;
+};
+
+const collectAvoidBlockRanges = (root: HTMLElement, rootRect: DOMRect): BlockRange[] => {
+  const ranges: BlockRange[] = [];
+  const selectors: Array<{ selector: string; strict: boolean }> = [
+    { selector: '.markdown-body h1', strict: false },
+    { selector: '.markdown-body h2', strict: false },
+    { selector: '.markdown-body h3', strict: false },
+    { selector: '.markdown-body h4', strict: false },
+    // Keep figures whole in preview pagination whenever they can fit in one page.
+    { selector: '.markdown-body .md-figure', strict: true },
+    { selector: '.markdown-body table', strict: false },
+    { selector: '.markdown-body pre', strict: false },
+    { selector: '.markdown-body .katex-display-block', strict: false },
+    { selector: '.markdown-body blockquote', strict: false },
+    { selector: '.markdown-body .md-table-caption', strict: false },
+    { selector: '.markdown-body .md-reference-list', strict: false },
+  ];
+
+  selectors.forEach(({ selector, strict }) => {
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>(selector));
+    nodes.forEach((node) => {
       const rect = node.getBoundingClientRect();
-      return {
+      if (rect.height <= 0) {
+        return;
+      }
+
+      ranges.push({
         top: rect.top - rootRect.top,
         bottom: rect.bottom - rootRect.top,
         height: rect.height,
-      };
-    })
-    .filter((item) => item.height > 0);
+        strict,
+      });
+    });
+  });
+
+  ranges.sort((a, b) => a.top - b.top);
+  return ranges;
+};
+
+const collectHeadingBindingRanges = (
+  root: HTMLElement,
+  rootRect: DOMRect,
+  pageHeight: number,
+): HeadingBindingRange[] => {
+  const headingBindings: HeadingBindingRange[] = [];
+  const headings = Array.from(
+    root.querySelectorAll<HTMLElement>('.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4'),
+  );
+  const maxBindingSpan = pageHeight * 0.95;
+
+  headings.forEach((heading) => {
+    const headingRect = heading.getBoundingClientRect();
+    if (headingRect.height <= 0) {
+      return;
+    }
+
+    let cursor = heading.nextElementSibling;
+    let nextBlock: HTMLElement | null = null;
+    while (cursor !== null) {
+      if (cursor instanceof HTMLElement) {
+        const nextRect = cursor.getBoundingClientRect();
+        if (nextRect.height > 0) {
+          nextBlock = cursor;
+          break;
+        }
+      }
+      cursor = cursor.nextElementSibling;
+    }
+
+    if (nextBlock === null) {
+      return;
+    }
+
+    const nextRect = nextBlock.getBoundingClientRect();
+    const headingTop = headingRect.top - rootRect.top;
+    const nextTop = nextRect.top - rootRect.top;
+    const nextBottom = nextRect.bottom - rootRect.top;
+    const minParagraphHeight = resolveElementLineHeight(nextBlock) * 2;
+    const paragraphLike = nextBlock.matches('p');
+    let keepUntil = paragraphLike
+      ? Math.min(nextBottom, nextTop + minParagraphHeight)
+      : nextBottom;
+
+    if (keepUntil - headingTop > maxBindingSpan) {
+      const fallbackChunkHeight = Math.max(minParagraphHeight, pageHeight * 0.24);
+      keepUntil = Math.min(nextBottom, nextTop + fallbackChunkHeight);
+    }
+
+    if (keepUntil <= headingTop + 1) {
+      return;
+    }
+
+    headingBindings.push({
+      top: headingTop,
+      keepUntil,
+    });
+  });
+
+  headingBindings.sort((a, b) => a.top - b.top);
+  return headingBindings;
+};
+
+const collectParagraphRanges = (
+  root: HTMLElement,
+  rootRect: DOMRect,
+): ParagraphRange[] => {
+  const paragraphRanges: ParagraphRange[] = [];
+  const paragraphs = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '.markdown-body p, .markdown-body li, .markdown-body blockquote p',
+    ),
+  );
+
+  paragraphs.forEach((paragraph) => {
+    const paragraphRect = paragraph.getBoundingClientRect();
+    if (paragraphRect.height <= 0) {
+      return;
+    }
+
+    paragraphRanges.push({
+      top: paragraphRect.top - rootRect.top,
+      bottom: paragraphRect.bottom - rootRect.top,
+      height: paragraphRect.height,
+      minSplitHeight: resolveElementLineHeight(paragraph) * 2,
+    });
+  });
+
+  paragraphRanges.sort((a, b) => a.top - b.top);
+  return paragraphRanges;
 };
 
 const buildSmartPageOffsets = (
   pageHeight: number,
   totalHeight: number,
   ranges: BlockRange[],
+  headingBindings: HeadingBindingRange[],
+  paragraphRanges: ParagraphRange[],
 ): number[] => {
   const offsets: number[] = [0];
   const minPageHeight = pageHeight * 0.38;
+  const headingBindingWindow = pageHeight * 0.35;
   const maxCrossBlockHeight = pageHeight * 0.95;
+  const maxStrictBlockHeight = pageHeight - 2;
   let guard = 0;
 
   while (true) {
@@ -207,16 +364,61 @@ const buildSmartPageOffsets = (
     }
 
     let next = previous + pageHeight;
-    const crossing = ranges.find(
-      (range) =>
-        range.top < next &&
-        range.bottom > next &&
-        range.height <= maxCrossBlockHeight &&
-        range.top - previous >= minPageHeight,
-    );
 
-    if (crossing !== undefined) {
-      next = Math.max(previous + minPageHeight, crossing.top);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const initialNext = next;
+
+      const headingBinding = headingBindings.find(
+        (binding) =>
+          binding.top < next &&
+          binding.keepUntil > next &&
+          next - binding.top <= headingBindingWindow &&
+          binding.top - previous >= minPageHeight,
+      );
+
+      if (headingBinding !== undefined) {
+        next = headingBinding.top;
+      }
+
+      const crossing = ranges.find(
+        (range) =>
+          range.top < next &&
+          range.bottom > next &&
+          range.height <= (range.strict ? maxStrictBlockHeight : maxCrossBlockHeight) &&
+          (range.strict || range.top - previous >= minPageHeight),
+      );
+
+      if (crossing !== undefined) {
+        next = crossing.strict
+          ? crossing.top
+          : Math.max(previous + minPageHeight, crossing.top);
+      }
+
+      const crossingParagraph = paragraphRanges.find(
+        (paragraph) =>
+          paragraph.top < next &&
+          paragraph.bottom > next &&
+          paragraph.height > paragraph.minSplitHeight * 2 + 1,
+      );
+
+      if (crossingParagraph !== undefined) {
+        const lowerBound = crossingParagraph.top + crossingParagraph.minSplitHeight;
+        const upperBound = crossingParagraph.bottom - crossingParagraph.minSplitHeight;
+
+        if (lowerBound >= upperBound) {
+          if (crossingParagraph.top - previous >= minPageHeight) {
+            next = crossingParagraph.top;
+          }
+        } else if (next > upperBound) {
+          next = Math.max(previous + minPageHeight, upperBound);
+        } else if (next < lowerBound && crossingParagraph.top - previous >= minPageHeight) {
+          next = crossingParagraph.top;
+        }
+      }
+
+      if (Math.abs(next - initialNext) < 0.5) {
+        break;
+      }
     }
 
     if (next <= previous + 1) {
@@ -236,7 +438,6 @@ const buildSmartPageOffsets = (
 const fitFormulaBlocks = (root: HTMLElement): void => {
   const markdownBody = root.querySelector<HTMLElement>('.markdown-body');
   if (markdownBody === null) {
-    store.setLongFormulaBlock(false);
     return;
   }
 
@@ -244,42 +445,7 @@ const fitFormulaBlocks = (root: HTMLElement): void => {
     markdownBody.querySelectorAll<HTMLElement>('.katex-display-block'),
   );
   if (formulaBlocks.length === 0) {
-    store.setLongFormulaBlock(false);
     return;
-  }
-
-  const pxPerMm = root.clientWidth / paperSizeMeta.value.widthMm;
-  const columnGapPx = store.exportSetting.columnGap * pxPerMm;
-  const safeDoubleColumnWidth = Math.max((markdownBody.clientWidth - columnGapPx) / 2, 40);
-
-  let hasLongFormulaBlock = false;
-  for (const block of formulaBlocks) {
-    const display = block.querySelector<HTMLElement>('.katex-display');
-    const katex = display?.querySelector<HTMLElement>('.katex');
-    if (display === null || display === undefined || katex === null || katex === undefined) {
-      continue;
-    }
-
-    display.style.fontSize = '1em';
-    const naturalWidth = Math.ceil(katex.scrollWidth);
-    if (naturalWidth > safeDoubleColumnWidth + 1) {
-      hasLongFormulaBlock = true;
-      break;
-    }
-  }
-
-  store.setLongFormulaBlock(hasLongFormulaBlock);
-
-  if (hasLongFormulaBlock && store.exportSetting.columns === 2) {
-    store.exportSetting.columns = 1;
-    if (!formulaAutoLockedNotified.value) {
-      formulaAutoLockedNotified.value = true;
-      MessagePlugin.warning(t('export.formulaSingleColumnLock'));
-    }
-  }
-
-  if (!hasLongFormulaBlock) {
-    formulaAutoLockedNotified.value = false;
   }
 
   for (const block of formulaBlocks) {
@@ -317,10 +483,14 @@ const recalculatePagination = (): void => {
 
   const totalContentHeight = Math.max(measureTotalContentHeight(root, rect), physicalPageHeight);
   const avoidRanges = collectAvoidBlockRanges(root, rect);
+  const headingBindings = collectHeadingBindingRanges(root, rect, physicalPageHeight);
+  const paragraphRanges = collectParagraphRanges(root, rect);
   pageOffsets.value = buildSmartPageOffsets(
     physicalPageHeight,
     totalContentHeight,
     avoidRanges,
+    headingBindings,
+    paragraphRanges,
   );
   const totalPages = Math.max(1, pageOffsets.value.length);
   pageCount.value = totalPages;
@@ -338,6 +508,54 @@ const scheduleRecalculate = (): void => {
   });
 };
 
+const scheduleAssetSettledRecalculate = (): void => {
+  scheduleRecalculate();
+
+  if (settleRecalculateTimeoutId !== null) {
+    window.clearTimeout(settleRecalculateTimeoutId);
+  }
+
+  settleRecalculateTimeoutId = window.setTimeout(() => {
+    settleRecalculateTimeoutId = null;
+    scheduleRecalculate();
+  }, 80);
+};
+
+const stopImageEventTracking = (): void => {
+  if (imageEventAbortController !== null) {
+    imageEventAbortController.abort();
+    imageEventAbortController = null;
+  }
+};
+
+const startImageEventTracking = (root: HTMLElement | null): void => {
+  stopImageEventTracking();
+
+  if (root === null) {
+    return;
+  }
+
+  const abortController = new AbortController();
+  const onAssetSettled = (event: Event): void => {
+    if (!(event.target instanceof HTMLImageElement)) {
+      return;
+    }
+
+    scheduleAssetSettledRecalculate();
+  };
+
+  root.addEventListener('load', onAssetSettled, {
+    capture: true,
+    signal: abortController.signal,
+  });
+  root.addEventListener('error', onAssetSettled, {
+    capture: true,
+    signal: abortController.signal,
+  });
+
+  imageEventAbortController = abortController;
+};
+
 const toPrevPage = (): void => {
   currentPage.value = Math.max(1, currentPage.value - 1);
 };
@@ -350,8 +568,9 @@ watch(
   () => [store.metadata, store.content, store.exportSetting],
   async () => {
     await nextTick();
-    await waitForPreviewAssets();
     scheduleRecalculate();
+    await waitForPreviewAssets();
+    scheduleAssetSettledRecalculate();
   },
   { deep: true },
 );
@@ -365,7 +584,8 @@ watch(printRootRef, (root, previousRoot) => {
     resizeObserver.observe(root);
   }
 
-  scheduleRecalculate();
+  startImageEventTracking(root);
+  scheduleAssetSettledRecalculate();
 });
 
 onMounted(async () => {
@@ -376,11 +596,13 @@ onMounted(async () => {
   if (printRootRef.value !== null) {
     resizeObserver.observe(printRootRef.value);
   }
+  startImageEventTracking(printRootRef.value);
 
   window.addEventListener('resize', scheduleRecalculate);
   await nextTick();
-  await waitForPreviewAssets();
   scheduleRecalculate();
+  await waitForPreviewAssets();
+  scheduleAssetSettledRecalculate();
 });
 
 onBeforeUnmount(() => {
@@ -392,6 +614,12 @@ onBeforeUnmount(() => {
   if (resizeObserver !== null) {
     resizeObserver.disconnect();
     resizeObserver = null;
+  }
+
+  stopImageEventTracking();
+  if (settleRecalculateTimeoutId !== null) {
+    window.clearTimeout(settleRecalculateTimeoutId);
+    settleRecalculateTimeoutId = null;
   }
 
   window.removeEventListener('resize', scheduleRecalculate);
@@ -465,32 +693,25 @@ onBeforeUnmount(() => {
                   </section>
 
                   <section class="journal-keywords">
-                    <strong>{{ t('preview.keywords') }}：</strong>
-                    <span>{{ store.metadata.keywords.join('；') }}</span>
+                    <strong>{{ t('preview.keywords') }}:</strong>
+                    <span>{{ keywordLine }}</span>
                   </section>
                 </header>
 
-                <section
-                  class="journal-body"
-                  :class="{
-                    'journal-body--double': store.exportSetting.columns === 2 && !store.hasLongFormulaBlock,
-                    'journal-body--single': store.exportSetting.columns === 1 || store.hasLongFormulaBlock,
-                  }"
-                >
+                <section class="journal-body">
                   <div class="markdown-body" :lang="store.locale" v-html="renderedHtml" />
                 </section>
               </article>
             </div>
           </div>
+          <div
+            v-if="currentPageBottomMaskHeight > 0"
+            class="preview-page-bottom-mask"
+            :style="pageBottomMaskStyle"
+            aria-hidden="true"
+          />
         </div>
       </div>
     </div>
-
-    <TAlert
-      v-if="forceSingleColumnByFormula"
-      class="preview-pane__formula-alert"
-      theme="warning"
-      :message="t('preview.formulaSingleColumnLock')"
-    />
   </section>
 </template>

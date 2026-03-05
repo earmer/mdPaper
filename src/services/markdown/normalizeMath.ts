@@ -10,6 +10,7 @@ const COMMON_COMMANDS = [
   'pi',
   'mathcal',
   'frac',
+  'partial',
   'sum',
   'left',
   'right',

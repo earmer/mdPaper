@@ -8,7 +8,7 @@ export const sampleManuscript: ManuscriptDraft = {
     title: '面向学术写作的浏览器端 Markdown 期刊排版方法研究',
     subtitle: 'A Browser-Only Workflow for Journal-Style PDF Typesetting',
     abstract:
-      '本文提出一种纯前端期刊排版流程，将论文元信息结构化建模，并与 Markdown 正文渲染深度耦合，实现“所见即所得”的实时预览与 PDF 导出。系统在浏览器内完成公式渲染、图文混排、单双栏切换、页眉页脚生成和分页控制，无需后端服务。实验结果表明，在常见投稿场景下，该方法可稳定生成符合期刊格式要求的高质量文档，并显著降低作者排版负担。',
+      '本文提出一种纯前端期刊排版流程，将论文元信息结构化建模，并与 Markdown 正文渲染深度耦合，实现“所见即所得”的实时预览与 PDF 导出。系统在浏览器内完成公式渲染、图文混排、单栏正文、页眉页脚生成和分页控制，无需后端服务。实验结果表明，在常见投稿场景下，该方法可稳定生成符合期刊格式要求的高质量文档，并显著降低作者排版负担。',
     keywords: ['Markdown', '学术排版', '前端工程', 'PDF 导出', '浏览器计算'],
     authors: [
       {
@@ -74,14 +74,16 @@ $$
 
 1. 输入元信息并编辑 Markdown 正文。
 2. 通过统一渲染管线生成排版预览。
-3. 切换单栏/双栏并调整页边距与行距。
+3. 调整页边距与行距，快速收敛投稿版式。
 4. 基于同一容器执行 PDF 导出。
 
 > 该流程避免了“编辑器样式”和“导出样式”分离导致的版式漂移问题。
 
 ### 2.3 图文与表格示例
 
-![系统流程图](https://picsum.photos/900/360 "图 1 系统流程示意")
+![系统流程图](https://picsum.photos/900/360 "系统流程示意")
+
+Table 1: 关键模块输入输出
 
 | 模块 | 输入 | 输出 |
 | --- | --- | --- |
@@ -91,7 +93,7 @@ $$
 
 ## 3 讨论
 
-双栏模式下，正文通过 CSS columns 完成分栏。为了提升可读性，我们对标题、代码块、表格设置了“避免栏内断裂”策略。
+单栏模式下，正文围绕结构块完整性进行分页控制。为了提升可读性，我们对标题、代码块、表格设置了“避免页内断裂”策略。
 
 
 a = \arg\max_{a \in \mathcal{A}} Q(s, a)
@@ -104,17 +106,15 @@ a = \arg\max_{a \in \mathcal{A}} Q(s, a)
   exportSetting: {
     engine: 'paged',
     paperSize: 'A4',
-    columns: 2,
     normalizeHeadings: true,
     fontSize: 10.8,
     lineHeight: 1.42,
     paragraphIndent: 2,
-    columnGap: 8,
     margins: {
-      top: 18,
-      right: 18,
-      bottom: 20,
-      left: 18,
+      top: 25,
+      right: 25,
+      bottom: 25,
+      left: 25,
     },
     headerFooter: {
       showHeader: true,

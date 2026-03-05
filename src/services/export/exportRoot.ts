@@ -94,7 +94,7 @@ const createIsolatedExportRoot = (
   article.id = EXPORT_ARTICLE_ID;
   article.style.transform = 'none';
   root.appendChild(article);
-  document.body.appendChild(root);
+  document.body.prepend(root);
 
   return { root, article };
 };

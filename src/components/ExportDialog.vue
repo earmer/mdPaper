@@ -36,11 +36,6 @@ const paperOptions = computed(() => [
   { label: t('export.paperLetter'), value: 'Letter' },
 ]);
 
-const columnOptions = computed(() => [
-  { label: t('export.singleColumn'), value: 1 },
-  { label: t('export.doubleColumn'), value: 2, disabled: store.hasLongFormulaBlock },
-]);
-
 const applyInlineForRemoteImages = async (): Promise<void> => {
   const targets = store.remoteImageUrls;
   if (targets.length === 0) {
@@ -74,10 +69,6 @@ const handleExport = async (): Promise<void> => {
   if (root === null) {
     MessagePlugin.error(t('errors.containerMissing'));
     return;
-  }
-
-  if (store.hasLongFormulaBlock && store.exportSetting.columns === 2) {
-    store.exportSetting.columns = 1;
   }
 
   exporting.value = true;
@@ -127,16 +118,10 @@ const handleExport = async (): Promise<void> => {
         <TCard size="small" :title="t('export.paperSize')">
           <TSpace direction="vertical" style="width: 100%" size="10px">
             <TSelect v-model="store.exportSetting.paperSize" :options="paperOptions" />
-            <TSelect v-model="store.exportSetting.columns" :options="columnOptions" />
             <TSpace align="center" size="8px">
               <TSwitch v-model="store.exportSetting.normalizeHeadings" />
               <span>{{ t('export.normalizeHeadings') }}</span>
             </TSpace>
-            <TAlert
-              v-if="store.hasLongFormulaBlock"
-              theme="warning"
-              :message="t('export.formulaSingleColumnLock')"
-            />
           </TSpace>
         </TCard>
 

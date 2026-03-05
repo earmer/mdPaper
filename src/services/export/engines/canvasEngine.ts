@@ -77,6 +77,7 @@ const drawHeaderFooter = (pdf: any, payload: ExportPayload): void => {
       if (headerRightText.length > 0) {
         pdf.text(headerRightText, pageWidth - exportSetting.margins.right, headerTextY, {
           align: 'right',
+          maxWidth: pageWidth * 0.55,
         });
       }
 
@@ -173,8 +174,12 @@ export const exportByCanvas = async (
             pagebreak: {
               mode: ['css'],
               avoid: [
+                '.markdown-body h1',
                 '.markdown-body h2',
                 '.markdown-body h3',
+                '.markdown-body h4',
+                '.markdown-body .md-reference-list',
+                '.markdown-body .md-table-caption',
                 '.md-figure',
                 '.katex-display-block',
                 '.markdown-body pre',
