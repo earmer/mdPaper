@@ -20,6 +20,7 @@ const zhCN = {
     confirm: '确认',
     cancel: '取消',
     loadedSample: '已加载示例论文',
+    fixtureLoaded: '已填充导出回归测试样例',
     draftSaved: '草稿已保存到本地',
     draftLoaded: '已恢复本地草稿',
     draftCleared: '已清除本地草稿',
@@ -92,6 +93,7 @@ const zhCN = {
     imageMaxWidth: '最大宽度(px)',
     enableDraftPersistence: '启用本地草稿自动持久化',
     resetSample: '恢复示例论文',
+    loadExportFixture: '填充导出测试样例',
   },
   export: {
     dialogTitle: '导出 PDF',
@@ -104,6 +106,7 @@ const zhCN = {
     columns: '正文栏数',
     singleColumn: '单栏',
     doubleColumn: '双栏',
+    normalizeHeadings: '章节标题期刊规范化（罗马数字 + 英文小型大写）',
     fontSize: '正文字号',
     lineHeight: '正文行距',
     paragraphIndent: '首行缩进（字）',

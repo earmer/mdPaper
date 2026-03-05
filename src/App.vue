@@ -133,6 +133,10 @@ const saveDraftOnUnload = (): void => {
                   </p>
                 </TFormItem>
 
+                <TFormItem :label="t('export.normalizeHeadings')">
+                  <TSwitch v-model="store.exportSetting.normalizeHeadings" />
+                </TFormItem>
+
                 <TFormItem :label="t('nav.resource')">
                   <TTag theme="warning" variant="light">
                     {{ t('preview.remoteImageCount', { count: store.remoteImageUrls.length }) }}

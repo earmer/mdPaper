@@ -58,6 +58,7 @@ export interface ExportSetting {
   engine: ExportEngine;
   paperSize: PaperSize;
   columns: 1 | 2;
+  normalizeHeadings: boolean;
   fontSize: number;
   lineHeight: number;
   paragraphIndent: number;

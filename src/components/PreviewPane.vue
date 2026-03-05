@@ -20,7 +20,11 @@ import {
 const { t } = useI18n();
 const store = useManuscriptStore();
 
-const renderedHtml = computed(() => renderMarkdown(store.content));
+const renderedHtml = computed(() =>
+  renderMarkdown(store.content, {
+    normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
+  }),
+);
 
 const authorLineHtml = computed(() =>
   formatAuthorAffiliation(store.metadata.authors, store.metadata.affiliations).join('， '),
@@ -315,7 +319,7 @@ onBeforeUnmount(() => {
                     'journal-body--single': store.exportSetting.columns === 1 || store.hasLongFormulaBlock,
                   }"
                 >
-                  <div class="markdown-body" v-html="renderedHtml" />
+                  <div class="markdown-body" :lang="store.locale" v-html="renderedHtml" />
                 </section>
               </article>
             </div>

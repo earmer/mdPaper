@@ -19,6 +19,11 @@ const resetSample = (): void => {
   store.resetToSample();
   MessagePlugin.success(t('app.loadedSample'));
 };
+
+const fillExportFixture = (): void => {
+  store.loadExportFixture();
+  MessagePlugin.success(t('app.fixtureLoaded'));
+};
 </script>
 
 <template>
@@ -202,12 +207,21 @@ const resetSample = (): void => {
       </TFormItem>
 
       <TFormItem>
-        <TButton variant="outline" @click="resetSample">
-          <template #icon>
-            <Icon icon="mdi:restart" />
-          </template>
-          {{ t('form.resetSample') }}
-        </TButton>
+        <TSpace>
+          <TButton variant="outline" @click="resetSample">
+            <template #icon>
+              <Icon icon="mdi:restart" />
+            </template>
+            {{ t('form.resetSample') }}
+          </TButton>
+
+          <TButton variant="outline" @click="fillExportFixture">
+            <template #icon>
+              <Icon icon="mdi:file-document-refresh-outline" />
+            </template>
+            {{ t('form.loadExportFixture') }}
+          </TButton>
+        </TSpace>
       </TFormItem>
     </TForm>
   </div>

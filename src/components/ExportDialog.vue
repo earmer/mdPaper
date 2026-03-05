@@ -128,6 +128,10 @@ const handleExport = async (): Promise<void> => {
           <TSpace direction="vertical" style="width: 100%" size="10px">
             <TSelect v-model="store.exportSetting.paperSize" :options="paperOptions" />
             <TSelect v-model="store.exportSetting.columns" :options="columnOptions" />
+            <TSpace align="center" size="8px">
+              <TSwitch v-model="store.exportSetting.normalizeHeadings" />
+              <span>{{ t('export.normalizeHeadings') }}</span>
+            </TSpace>
             <TAlert
               v-if="store.hasLongFormulaBlock"
               theme="warning"

@@ -8,6 +8,10 @@ import {
   buildPageLabel,
   getPaperCssSize,
 } from '@/services/export/helpers';
+import {
+  waitForExportRenderReady,
+  withIsolatedExportRoot,
+} from '@/services/export/exportRoot';
 import { withBodyClass } from '@/utils/dom';
 
 interface Html2PdfWorker {
@@ -27,6 +31,12 @@ const drawHeaderFooter = (pdf: any, payload: ExportPayload): void => {
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const pageCount = pdf.internal.getNumberOfPages();
+  const headerTextY = Math.max(4.8, exportSetting.margins.top - 6.2);
+  const headerLineY = Math.max(6.4, exportSetting.margins.top - 3.4);
+  const footerLineY = pageHeight - Math.max(6.2, exportSetting.margins.bottom - 3.6);
+  const footerTextY = Math.min(pageHeight - 3.8, footerLineY + 3.4);
+  const lineLeft = exportSetting.margins.left;
+  const lineRight = pageWidth - exportSetting.margins.right;
   const headerLeftText = buildHeaderLeftText(payload);
   const headerRightText = buildHeaderRightText(payload);
   const footerLeftText = buildFooterLeftText(payload);
@@ -36,46 +46,53 @@ const drawHeaderFooter = (pdf: any, payload: ExportPayload): void => {
     pdf.setPage(page);
     pdf.setFont('times', 'normal');
 
-    if (headerLeftText.length > 0 || headerRightText.length > 0) {
+    if (
+      exportSetting.headerFooter.showHeader &&
+      (headerLeftText.length > 0 || headerRightText.length > 0)
+    ) {
       pdf.setFontSize(8.8);
       if (headerLeftText.length > 0) {
-        pdf.text(headerLeftText, exportSetting.margins.left, 8, {
+        pdf.text(headerLeftText, exportSetting.margins.left, headerTextY, {
           maxWidth: pageWidth * 0.5,
         });
       }
 
       if (headerRightText.length > 0) {
-        pdf.text(headerRightText, pageWidth - exportSetting.margins.right, 8, {
+        pdf.text(headerRightText, pageWidth - exportSetting.margins.right, headerTextY, {
           align: 'right',
         });
       }
 
-      pdf.setDrawColor(156, 163, 175);
+      pdf.setDrawColor(82, 82, 91);
       pdf.setLineWidth(0.1);
-      pdf.line(8, 10, pageWidth - 8, 10);
+      pdf.line(lineLeft, headerLineY, lineRight, headerLineY);
     }
 
-    pdf.setDrawColor(156, 163, 175);
-    pdf.setLineWidth(0.1);
-    pdf.line(8, pageHeight - 10, pageWidth - 8, pageHeight - 10);
+    if (exportSetting.headerFooter.showFooter) {
+      pdf.setDrawColor(82, 82, 91);
+      pdf.setLineWidth(0.1);
+      pdf.line(lineLeft, footerLineY, lineRight, footerLineY);
+    }
 
     pdf.setFontSize(8.5);
-    if (footerLeftText.length > 0) {
-      pdf.text(footerLeftText, exportSetting.margins.left, pageHeight - 6, {
+    if (exportSetting.headerFooter.showFooter && footerLeftText.length > 0) {
+      pdf.text(footerLeftText, exportSetting.margins.left, footerTextY, {
         maxWidth: pageWidth * 0.65,
       });
     }
 
-    if (footerRightText.length > 0) {
-      pdf.text(footerRightText, pageWidth - exportSetting.margins.right, pageHeight - 6, {
+    if (exportSetting.headerFooter.showFooter && footerRightText.length > 0) {
+      pdf.text(footerRightText, pageWidth - exportSetting.margins.right, footerTextY, {
         align: 'right',
       });
     }
 
     const pageText = buildPageLabel(locale, page, pageCount);
-    pdf.text(pageText, pageWidth / 2, pageHeight - 6, {
-      align: 'center',
-    });
+    if (exportSetting.headerFooter.showFooter && exportSetting.headerFooter.showPageNumber) {
+      pdf.text(pageText, pageWidth / 2, footerTextY, {
+        align: 'center',
+      });
+    }
   }
 };
 
@@ -83,55 +100,68 @@ export const exportByCanvas = async (
   payload: ExportPayload,
   fileName: string,
 ): Promise<void> => {
-  applyLayoutVars(payload);
-
   const module = await import('html2pdf.js');
   const html2pdf = (module.default ?? module) as Html2PdfFactory;
   const paper = getPaperCssSize(payload.exportSetting.paperSize).toLowerCase();
 
-  await withBodyClass('canvas-exporting', async () => {
-    const worker = html2pdf()
-      .set({
-        margin: [
-          payload.exportSetting.margins.top,
-          payload.exportSetting.margins.right,
-          payload.exportSetting.margins.bottom,
-          payload.exportSetting.margins.left,
-        ],
-        filename: fileName,
-        image: {
-          type: 'jpeg',
-          quality: 0.98,
-        },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          backgroundColor: '#ffffff',
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: paper,
-          orientation: 'portrait',
-        },
-        pagebreak: {
-          mode: ['css', 'legacy'],
-          avoid: [
-            'p',
-            'li',
-            'blockquote',
-            '.md-figure',
-            '.katex-display-block',
-            'pre',
-            'table',
-          ],
-        },
-      })
-      .from(payload.articleElement)
-      .toPdf();
+  await withIsolatedExportRoot(
+    payload.articleElement,
+    payload.exportSetting.paperSize,
+    async (isolatedArticle) => {
+      const isolatedPayload: ExportPayload = {
+        ...payload,
+        articleElement: isolatedArticle,
+      };
 
-    const pdf = await worker.get('pdf');
-    drawHeaderFooter(pdf, payload);
-    await worker.save();
-  });
+      applyLayoutVars(isolatedPayload);
+      await waitForExportRenderReady(isolatedArticle);
+
+      await withBodyClass('canvas-exporting', async () => {
+        const worker = html2pdf()
+          .set({
+            margin: [
+              payload.exportSetting.margins.top,
+              payload.exportSetting.margins.right,
+              payload.exportSetting.margins.bottom,
+              payload.exportSetting.margins.left,
+            ],
+            filename: fileName,
+            image: {
+              type: 'jpeg',
+              quality: 0.98,
+            },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              allowTaint: false,
+              backgroundColor: '#ffffff',
+            },
+            jsPDF: {
+              unit: 'mm',
+              format: paper,
+              orientation: 'portrait',
+            },
+            pagebreak: {
+              mode: ['css', 'legacy'],
+              avoid: [
+                'h1',
+                'h2',
+                'h3',
+                '.md-figure',
+                '.katex-display-block',
+                'pre',
+                'table',
+                'blockquote',
+              ],
+            },
+          })
+          .from(isolatedArticle)
+          .toPdf();
+
+        const pdf = await worker.get('pdf');
+        drawHeaderFooter(pdf, isolatedPayload);
+        await worker.save();
+      });
+    },
+  );
 };

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560">
+  <rect width="1280" height="560" fill="#ffffff" />
+  <rect x="40" y="48" width="1200" height="464" fill="#fafafa" stroke="#52525b" stroke-width="2" />
+  <line x1="120" y1="110" x2="1160" y2="110" stroke="#27272a" stroke-width="2" />
+  <text x="120" y="95" fill="#27272a" font-size="28" font-family="Times New Roman, serif">Export Regression Layout</text>
+
+  <rect x="120" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
+  <rect x="490" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
+  <rect x="860" y="150" width="300" height="86" fill="#ffffff" stroke="#71717a" />
+  <text x="145" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">Preview</text>
+  <text x="525" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">Export Root</text>
+  <text x="925" y="200" fill="#27272a" font-size="30" font-family="Times New Roman, serif">PDF</text>
+
+  <line x1="420" y1="193" x2="490" y2="193" stroke="#3f3f46" stroke-width="3" />
+  <polygon points="490,193 474,183 474,203" fill="#3f3f46" />
+  <line x1="790" y1="193" x2="860" y2="193" stroke="#3f3f46" stroke-width="3" />
+  <polygon points="860,193 844,183 844,203" fill="#3f3f46" />
+
+  <rect x="120" y="286" width="500" height="180" fill="#ffffff" stroke="#a1a1aa" />
+  <text x="144" y="328" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- heading keep with first paragraph</text>
+  <text x="144" y="366" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- figure/table/math avoid hard split</text>
+  <text x="144" y="404" fill="#27272a" font-size="25" font-family="Times New Roman, serif">- orphans / widows >= 3</text>
+
+  <rect x="680" y="286" width="480" height="180" fill="#ffffff" stroke="#a1a1aa" />
+  <text x="706" y="328" fill="#27272a" font-size="25" font-family="Times New Roman, serif">line-height: 1.42</text>
+  <text x="706" y="366" fill="#27272a" font-size="25" font-family="Times New Roman, serif">font-size: 10.8pt</text>
+  <text x="706" y="404" fill="#27272a" font-size="25" font-family="Times New Roman, serif">serif + restrained grayscale</text>
+</svg>

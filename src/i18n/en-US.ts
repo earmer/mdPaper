@@ -20,6 +20,7 @@ const enUS = {
     confirm: 'Confirm',
     cancel: 'Cancel',
     loadedSample: 'Sample manuscript loaded',
+    fixtureLoaded: 'Export regression fixture loaded',
     draftSaved: 'Draft saved locally',
     draftLoaded: 'Local draft restored',
     draftCleared: 'Local draft cleared',
@@ -91,6 +92,7 @@ const enUS = {
     imageMaxWidth: 'Max width(px)',
     enableDraftPersistence: 'Enable local draft persistence',
     resetSample: 'Reset to sample manuscript',
+    loadExportFixture: 'Load export fixture',
   },
   export: {
     dialogTitle: 'Export PDF',
@@ -103,6 +105,7 @@ const enUS = {
     columns: 'Body Columns',
     singleColumn: 'Single',
     doubleColumn: 'Double',
+    normalizeHeadings: 'Normalize section headings (Roman numeral + small caps)',
     fontSize: 'Font Size',
     lineHeight: 'Line Height',
     paragraphIndent: 'Paragraph Indent (char)',

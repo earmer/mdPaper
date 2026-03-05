@@ -1,6 +1,10 @@
 import type { ExportPayload } from '@/types/manuscript';
 import { nextAnimationFrame, withBodyClass } from '@/utils/dom';
 import { applyLayoutVars } from '@/services/export/helpers';
+import {
+  waitForExportRenderReady,
+  withIsolatedExportRoot,
+} from '@/services/export/exportRoot';
 
 const waitForAfterPrint = (): Promise<void> =>
   new Promise((resolve) => {
@@ -18,23 +22,35 @@ const waitForAfterPrint = (): Promise<void> =>
   });
 
 export const exportByPaged = async (payload: ExportPayload): Promise<void> => {
-  applyLayoutVars(payload);
+  await withIsolatedExportRoot(
+    payload.articleElement,
+    payload.exportSetting.paperSize,
+    async (isolatedArticle) => {
+      const isolatedPayload: ExportPayload = {
+        ...payload,
+        articleElement: isolatedArticle,
+      };
 
-  await withBodyClass('print-preview', async () => {
-    await nextAnimationFrame();
+      applyLayoutVars(isolatedPayload);
+      await waitForExportRenderReady(isolatedArticle);
 
-    const pagedModule = await import('pagedjs');
-    void pagedModule;
+      await withBodyClass('print-preview', async () => {
+        await nextAnimationFrame();
 
-    const pagedPolyfill = (window as Window & {
-      PagedPolyfill?: { preview?: () => Promise<unknown> };
-    }).PagedPolyfill;
+        const pagedModule = await import('pagedjs');
+        void pagedModule;
 
-    if (typeof pagedPolyfill?.preview === 'function') {
-      await pagedPolyfill.preview();
-    }
+        const pagedPolyfill = (window as Window & {
+          PagedPolyfill?: { preview?: () => Promise<unknown> };
+        }).PagedPolyfill;
 
-    window.print();
-    await waitForAfterPrint();
-  });
+        if (typeof pagedPolyfill?.preview === 'function') {
+          await pagedPolyfill.preview();
+        }
+
+        window.print();
+        await waitForAfterPrint();
+      });
+    },
+  );
 };

@@ -9,6 +9,7 @@ export const getPaperCssSize = (paper: 'A4' | 'Letter'): string =>
 
 export const applyLayoutVars = (payload: ExportPayload): void => {
   const { exportSetting, articleElement } = payload;
+  articleElement.setAttribute('data-paper', exportSetting.paperSize);
   articleElement.style.setProperty('--paper-size', getPaperCssSize(exportSetting.paperSize));
   articleElement.style.setProperty('--paper-margin-top', `${exportSetting.margins.top}mm`);
   articleElement.style.setProperty('--paper-margin-right', `${exportSetting.margins.right}mm`);

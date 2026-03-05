@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { exportRegressionFixture } from '@/data/exportFixture';
 import { sampleManuscript } from '@/data/sampleManuscript';
 import type {
   Affiliation,
@@ -16,10 +17,11 @@ import { parseRemoteImageUrls } from '@/utils/format';
 const DRAFT_KEY = 'mdpaper-draft-v1';
 const LEGACY_DRAFT_KEYS = ['journal-pdf-draft-v1'];
 const LOCKED_EXPORT_LAYOUT = {
-  fontSize: 12,
-  lineHeight: 1.8,
+  fontSize: 10.8,
+  lineHeight: 1.42,
   paragraphIndent: 2,
-  columnGap: 9,
+  columnGap: 8,
+  normalizeHeadings: true,
   margins: {
     top: 18,
     right: 18,
@@ -44,6 +46,7 @@ const applyLockedExportLayout = (setting: ExportSetting): void => {
   setting.lineHeight = LOCKED_EXPORT_LAYOUT.lineHeight;
   setting.paragraphIndent = LOCKED_EXPORT_LAYOUT.paragraphIndent;
   setting.columnGap = LOCKED_EXPORT_LAYOUT.columnGap;
+  setting.normalizeHeadings = LOCKED_EXPORT_LAYOUT.normalizeHeadings;
   setting.margins = { ...LOCKED_EXPORT_LAYOUT.margins };
 };
 
@@ -127,6 +130,12 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.exportSetting = data.exportSetting;
       applyLockedExportLayout(this.exportSetting);
       this.imageOption = data.imageOption;
+    },
+    loadExportFixture(): void {
+      this.metadata = structuredClone(exportRegressionFixture.metadata);
+      this.content = exportRegressionFixture.content;
+      this.hasLongFormulaBlock = false;
+      applyLockedExportLayout(this.exportSetting);
     },
     addAuthor(): void {
       const firstAffiliation = this.metadata.affiliations[0]?.id;
