@@ -99,8 +99,6 @@
     left: auto !important;
     top: auto !important;
     transform: none !important;
-    width: auto !important;
-    min-height: auto;
     box-shadow: none;
     overflow: visible !important;
     pointer-events: auto !important;
@@ -109,20 +107,10 @@
   }
 
   body.print-preview #journal-export-root .journal-page {
-    width: auto !important;
-    min-height: auto !important;
     box-shadow: none !important;
   }
 
   body.print-preview #journal-export-root .journal-page-header-static {
     display: none !important;
-  }
-
-  body.print-preview #journal-export-root .journal-article {
-    padding-top: 0 !important;
-    padding-right: 0 !important;
-    padding-bottom: 0 !important;
-    padding-left: 0 !important;
-    min-height: auto;
   }
 }

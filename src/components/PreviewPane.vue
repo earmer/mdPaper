@@ -10,6 +10,7 @@ import {
 import { useI18n } from 'vue-i18n';
 import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { renderMarkdown } from '@/services/markdown/md';
+import { computeSharedPagination } from '@/services/pagination/sharedPagination';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import {
   formatAffiliationLine,
@@ -46,6 +47,8 @@ const currentPage = ref(1);
 const pageCount = ref(1);
 const pageHeightPx = ref(0);
 const pageOffsets = ref<number[]>([0]);
+const pageTopInsetPx = ref(0);
+const pageBottomInsetPx = ref(0);
 
 let resizeObserver: ResizeObserver | null = null;
 let resizeRafId: number | null = null;
@@ -62,18 +65,6 @@ const previewWindowStyle = computed(() => ({
   width: `${paperSizeMeta.value.widthMm}mm`,
   height: `${paperSizeMeta.value.heightMm}mm`,
 }));
-
-const pageTopInsetPx = computed(() => {
-  const pageHeight = pageHeightPx.value;
-  const pageHeightMm = paperSizeMeta.value.heightMm;
-  if (pageHeight <= 0 || pageHeightMm <= 0) {
-    return 0;
-  }
-
-  const pxPerMm = pageHeight / pageHeightMm;
-  const inset = store.exportSetting.margins.top * pxPerMm;
-  return Math.max(0, Math.min(pageHeight * 0.45, inset));
-});
 
 const pageTopMaskStyle = computed(() => ({
   height: `${pageTopInsetPx.value}px`,
@@ -102,12 +93,16 @@ const normalizeDisplayMathBlocks = (root: HTMLElement): void => {
 };
 
 const currentPageBottomMaskHeight = computed(() => {
+  const pageHeight = pageHeightPx.value;
+  const pageTopInset = pageTopInsetPx.value;
+  const pageBottomInset = pageBottomInsetPx.value;
+  const standardVisibleHeight = Math.max(1, pageHeight - pageTopInset - pageBottomInset);
   const start =
     pageOffsets.value[currentPage.value - 1]
-    ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
-  const nextStart = pageOffsets.value[currentPage.value] ?? start + pageHeightPx.value;
-  const visibleHeight = Math.max(0, Math.min(pageHeightPx.value, nextStart - start));
-  const maskHeight = pageHeightPx.value - pageTopInsetPx.value - visibleHeight;
+    ?? Math.max(0, (currentPage.value - 1) * standardVisibleHeight);
+  const nextStart = pageOffsets.value[currentPage.value] ?? start + standardVisibleHeight;
+  const visibleHeight = Math.max(0, Math.min(standardVisibleHeight, nextStart - start));
+  const maskHeight = pageHeight - pageTopInset - visibleHeight;
 
   return maskHeight > 0.5 ? maskHeight : 0;
 });
@@ -188,344 +183,23 @@ const waitForPreviewAssets = async (): Promise<void> => {
   normalizeDisplayMathBlocks(root);
 };
 
-const measureTotalContentHeight = (root: HTMLElement, rootRect: DOMRect): number => {
-  const article = root.querySelector<HTMLElement>('.journal-article');
-  const heights = [
-    root.scrollHeight,
-    root.offsetHeight,
-    rootRect.height,
-  ];
-
-  if (article !== null) {
-    heights.push(article.scrollHeight, article.offsetHeight, article.getBoundingClientRect().height);
-
-    const articleRect = article.getBoundingClientRect();
-    let maxBottom = articleRect.bottom - rootRect.top;
-    const tails = article.querySelectorAll<HTMLElement>(
-      ':scope > *, .markdown-body > *',
-    );
-
-    tails.forEach((element) => {
-      const elementRect = element.getBoundingClientRect();
-      if (elementRect.height <= 0) {
-        return;
-      }
-
-      maxBottom = Math.max(maxBottom, elementRect.bottom - rootRect.top);
-    });
-
-    heights.push(maxBottom);
-  }
-
-  return Math.max(...heights) + 2;
-};
-
-interface BlockRange {
-  top: number;
-  bottom: number;
-  height: number;
-  strict: boolean;
-}
-
-interface HeadingBindingRange {
-  top: number;
-  keepUntil: number;
-}
-
-interface ParagraphRange {
-  top: number;
-  bottom: number;
-  height: number;
-  minSplitHeight: number;
-}
-
-const resolveElementLineHeight = (element: HTMLElement): number => {
-  const computedStyle = window.getComputedStyle(element);
-  const parsedLineHeight = Number.parseFloat(computedStyle.lineHeight);
-  if (Number.isFinite(parsedLineHeight) && parsedLineHeight > 0) {
-    return parsedLineHeight;
-  }
-
-  const parsedFontSize = Number.parseFloat(computedStyle.fontSize);
-  if (Number.isFinite(parsedFontSize) && parsedFontSize > 0) {
-    return parsedFontSize * 1.5;
-  }
-
-  return 18;
-};
-
-const collectAvoidBlockRanges = (root: HTMLElement, rootRect: DOMRect): BlockRange[] => {
-  const ranges: BlockRange[] = [];
-  const selectors: Array<{ selector: string; strict: boolean }> = [
-    { selector: '.markdown-body h1', strict: false },
-    { selector: '.markdown-body h2', strict: false },
-    { selector: '.markdown-body h3', strict: false },
-    { selector: '.markdown-body h4', strict: false },
-    // Keep figures whole in preview pagination whenever they can fit in one page.
-    { selector: '.markdown-body .md-figure', strict: true },
-    { selector: '.markdown-body table', strict: false },
-    { selector: '.markdown-body pre', strict: false },
-    { selector: '.markdown-body .katex-display-block', strict: false },
-    { selector: '.markdown-body blockquote', strict: false },
-    { selector: '.markdown-body .md-table-caption', strict: false },
-    { selector: '.markdown-body .md-reference-list', strict: false },
-  ];
-
-  selectors.forEach(({ selector, strict }) => {
-    const nodes = Array.from(root.querySelectorAll<HTMLElement>(selector));
-    nodes.forEach((node) => {
-      const rect = node.getBoundingClientRect();
-      if (rect.height <= 0) {
-        return;
-      }
-
-      ranges.push({
-        top: rect.top - rootRect.top,
-        bottom: rect.bottom - rootRect.top,
-        height: rect.height,
-        strict,
-      });
-    });
-  });
-
-  ranges.sort((a, b) => a.top - b.top);
-  return ranges;
-};
-
-const collectHeadingBindingRanges = (
-  root: HTMLElement,
-  rootRect: DOMRect,
-  pageHeight: number,
-): HeadingBindingRange[] => {
-  const headingBindings: HeadingBindingRange[] = [];
-  const headings = Array.from(
-    root.querySelectorAll<HTMLElement>('.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4'),
-  );
-  const maxBindingSpan = pageHeight * 0.95;
-
-  headings.forEach((heading) => {
-    const headingRect = heading.getBoundingClientRect();
-    if (headingRect.height <= 0) {
-      return;
-    }
-
-    let cursor = heading.nextElementSibling;
-    let nextBlock: HTMLElement | null = null;
-    while (cursor !== null) {
-      if (cursor instanceof HTMLElement) {
-        const nextRect = cursor.getBoundingClientRect();
-        if (nextRect.height > 0) {
-          nextBlock = cursor;
-          break;
-        }
-      }
-      cursor = cursor.nextElementSibling;
-    }
-
-    if (nextBlock === null) {
-      return;
-    }
-
-    const nextRect = nextBlock.getBoundingClientRect();
-    const headingTop = headingRect.top - rootRect.top;
-    const nextTop = nextRect.top - rootRect.top;
-    const nextBottom = nextRect.bottom - rootRect.top;
-    const minParagraphHeight = resolveElementLineHeight(nextBlock) * 2;
-    const paragraphLike = nextBlock.matches('p');
-    let keepUntil = paragraphLike
-      ? Math.min(nextBottom, nextTop + minParagraphHeight)
-      : nextBottom;
-
-    if (keepUntil - headingTop > maxBindingSpan) {
-      const fallbackChunkHeight = Math.max(minParagraphHeight, pageHeight * 0.24);
-      keepUntil = Math.min(nextBottom, nextTop + fallbackChunkHeight);
-    }
-
-    if (keepUntil <= headingTop + 1) {
-      return;
-    }
-
-    headingBindings.push({
-      top: headingTop,
-      keepUntil,
-    });
-  });
-
-  headingBindings.sort((a, b) => a.top - b.top);
-  return headingBindings;
-};
-
-const collectParagraphRanges = (
-  root: HTMLElement,
-  rootRect: DOMRect,
-): ParagraphRange[] => {
-  const paragraphRanges: ParagraphRange[] = [];
-  const paragraphs = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      '.markdown-body p, .markdown-body li, .markdown-body blockquote p',
-    ),
-  );
-
-  paragraphs.forEach((paragraph) => {
-    const paragraphRect = paragraph.getBoundingClientRect();
-    if (paragraphRect.height <= 0) {
-      return;
-    }
-
-    paragraphRanges.push({
-      top: paragraphRect.top - rootRect.top,
-      bottom: paragraphRect.bottom - rootRect.top,
-      height: paragraphRect.height,
-      minSplitHeight: resolveElementLineHeight(paragraph) * 2,
-    });
-  });
-
-  paragraphRanges.sort((a, b) => a.top - b.top);
-  return paragraphRanges;
-};
-
-const buildSmartPageOffsets = (
-  pageHeight: number,
-  pageAdvance: number,
-  totalHeight: number,
-  ranges: BlockRange[],
-  headingBindings: HeadingBindingRange[],
-  paragraphRanges: ParagraphRange[],
-): number[] => {
-  const offsets: number[] = [0];
-  const effectivePageAdvance = Math.max(pageHeight * 0.4, pageAdvance);
-  const minPageHeight = effectivePageAdvance * 0.38;
-  const headingBindingWindow = effectivePageAdvance * 0.35;
-  const maxCrossBlockHeight = effectivePageAdvance * 0.95;
-  const maxStrictBlockHeight = effectivePageAdvance - 2;
-  let guard = 0;
-
-  while (true) {
-    const previous = offsets[offsets.length - 1] ?? 0;
-    if (previous + effectivePageAdvance >= totalHeight - 2) {
-      break;
-    }
-
-    let next = previous + effectivePageAdvance;
-
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const initialNext = next;
-
-      const headingBinding = headingBindings.find(
-        (binding) =>
-          binding.top < next &&
-          binding.keepUntil > next &&
-          next - binding.top <= headingBindingWindow &&
-          binding.top - previous >= minPageHeight,
-      );
-
-      if (headingBinding !== undefined) {
-        next = headingBinding.top;
-      }
-
-      const crossing = ranges.find(
-        (range) =>
-          range.top < next &&
-          range.bottom > next &&
-          range.height <= (range.strict ? maxStrictBlockHeight : maxCrossBlockHeight) &&
-          (range.strict || range.top - previous >= minPageHeight),
-      );
-
-      if (crossing !== undefined) {
-        next = crossing.strict
-          ? crossing.top
-          : Math.max(previous + minPageHeight, crossing.top);
-      }
-
-      const crossingParagraph = paragraphRanges.find(
-        (paragraph) =>
-          paragraph.top < next &&
-          paragraph.bottom > next &&
-          paragraph.height > paragraph.minSplitHeight * 2 + 1,
-      );
-
-      if (crossingParagraph !== undefined) {
-        const lowerBound = crossingParagraph.top + crossingParagraph.minSplitHeight;
-        const upperBound = crossingParagraph.bottom - crossingParagraph.minSplitHeight;
-
-        if (lowerBound >= upperBound) {
-          if (crossingParagraph.top - previous >= minPageHeight) {
-            next = crossingParagraph.top;
-          }
-        } else if (next > upperBound) {
-          next = Math.max(previous + minPageHeight, upperBound);
-        } else if (next < lowerBound && crossingParagraph.top - previous >= minPageHeight) {
-          next = crossingParagraph.top;
-        }
-      }
-
-      if (Math.abs(next - initialNext) < 0.5) {
-        break;
-      }
-    }
-
-    if (next <= previous + 1) {
-      next = previous + effectivePageAdvance;
-    }
-
-    offsets.push(next);
-    guard += 1;
-    if (guard > 2048) {
-      break;
-    }
-  }
-
-  return offsets;
-};
-
 const recalculatePagination = (): void => {
   const root = printRootRef.value;
   if (root === null) {
     return;
   }
 
-  const rect = root.getBoundingClientRect();
-  if (rect.width <= 0) {
-    return;
-  }
+  const pagination = computeSharedPagination({
+    root,
+    paperSize: store.exportSetting.paperSize,
+    marginsTopMm: store.exportSetting.margins.top,
+    marginsBottomMm: store.exportSetting.margins.bottom,
+  });
 
-  const paperRatio = paperSizeMeta.value.heightMm / paperSizeMeta.value.widthMm;
-  const physicalPageHeight = rect.width * paperRatio;
-  pageHeightPx.value = physicalPageHeight;
-  const pageTopInset = pageTopInsetPx.value;
-  const pageAdvance = Math.max(1, physicalPageHeight - pageTopInset);
-  const toOffsetCoordinate = (value: number): number => Math.max(0, value - pageTopInset);
-
-  const totalContentHeight = Math.max(measureTotalContentHeight(root, rect), physicalPageHeight);
-  const avoidRanges = collectAvoidBlockRanges(root, rect)
-    .map((range) => ({
-      ...range,
-      top: toOffsetCoordinate(range.top),
-      bottom: toOffsetCoordinate(range.bottom),
-    }))
-    .filter((range) => range.bottom > range.top + 0.5);
-  const headingBindings = collectHeadingBindingRanges(root, rect, pageAdvance)
-    .map((binding) => ({
-      top: toOffsetCoordinate(binding.top),
-      keepUntil: toOffsetCoordinate(binding.keepUntil),
-    }))
-    .filter((binding) => binding.keepUntil > binding.top + 0.5);
-  const paragraphRanges = collectParagraphRanges(root, rect)
-    .map((paragraph) => ({
-      ...paragraph,
-      top: toOffsetCoordinate(paragraph.top),
-      bottom: toOffsetCoordinate(paragraph.bottom),
-    }))
-    .filter((paragraph) => paragraph.bottom > paragraph.top + 0.5);
-  const totalOffsetHeight = Math.max(pageAdvance, toOffsetCoordinate(totalContentHeight));
-  pageOffsets.value = buildSmartPageOffsets(
-    physicalPageHeight,
-    pageAdvance,
-    totalOffsetHeight,
-    avoidRanges,
-    headingBindings,
-    paragraphRanges,
-  );
+  pageHeightPx.value = pagination.pageHeightPx;
+  pageTopInsetPx.value = pagination.pageTopInsetPx;
+  pageBottomInsetPx.value = pagination.pageBottomInsetPx;
+  pageOffsets.value = pagination.pageOffsets;
   const totalPages = Math.max(1, pageOffsets.value.length);
   pageCount.value = totalPages;
   currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);

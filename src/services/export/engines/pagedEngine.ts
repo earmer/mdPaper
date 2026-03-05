@@ -5,6 +5,7 @@ import {
   waitForExportRenderReady,
   withIsolatedExportRoot,
 } from '@/services/export/exportRoot';
+import { applySharedPaginationBreaks } from '@/services/pagination/sharedPagination';
 
 const waitForAfterPrint = (): Promise<void> =>
   new Promise((resolve) => {
@@ -33,6 +34,12 @@ export const exportByPaged = async (payload: ExportPayload): Promise<void> => {
 
       applyLayoutVars(isolatedPayload);
       await waitForExportRenderReady(isolatedArticle);
+      applySharedPaginationBreaks({
+        root: isolatedArticle,
+        paperSize: isolatedPayload.exportSetting.paperSize,
+        marginsTopMm: isolatedPayload.exportSetting.margins.top,
+        marginsBottomMm: isolatedPayload.exportSetting.margins.bottom,
+      });
 
       await withBodyClass('print-preview', async () => {
         await nextAnimationFrame();

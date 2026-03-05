@@ -141,7 +141,7 @@ const handleExport = async (): Promise<void> => {
               </TTag>
               <p class="export-dialog__risk-text">{{ t('export.remoteImageRisk') }}</p>
               <TButton variant="outline" :loading="converting" @click="applyInlineForRemoteImages">
-                <template #icon>
+                <template v-if="!converting" #icon>
                   <Icon icon="mdi:image-sync-outline" />
                 </template>
                 {{ converting ? t('export.converting') : t('export.convertInline') }}
@@ -157,7 +157,7 @@ const handleExport = async (): Promise<void> => {
             {{ t('export.cancel') }}
           </TButton>
           <TButton theme="primary" :loading="exporting" @click="handleExport">
-            <template #icon>
+            <template v-if="!exporting" #icon>
               <Icon icon="mdi:file-download-outline" />
             </template>
             {{ t('export.start') }}

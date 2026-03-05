@@ -50,7 +50,7 @@ export const sampleManuscript: ManuscriptDraft = {
     fundings: [
       {
         id: 'fund-1',
-        text: '国家自然科学基金（No. 62401234）',
+        text: 'xxxx基金会（编号10000000）',
       },
     ],
   },

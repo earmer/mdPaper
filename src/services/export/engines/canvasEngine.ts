@@ -12,6 +12,7 @@ import {
   waitForExportRenderReady,
   withIsolatedExportRoot,
 } from '@/services/export/exportRoot';
+import { applySharedPaginationBreaks } from '@/services/pagination/sharedPagination';
 import { withBodyClass } from '@/utils/dom';
 
 interface Html2PdfWorker {
@@ -126,16 +127,6 @@ export const exportByCanvas = async (
     payload.articleElement,
     payload.exportSetting.paperSize,
     async (isolatedArticle) => {
-      const contentRoot =
-        isolatedArticle.querySelector<HTMLElement>('.journal-article') ?? isolatedArticle;
-      isolatedArticle.style.minHeight = 'auto';
-      contentRoot.style.minHeight = 'auto';
-      contentRoot.style.paddingTop = '0';
-      contentRoot.style.paddingRight = '0';
-      contentRoot.style.paddingBottom = '0';
-      contentRoot.style.paddingLeft = '0';
-      contentRoot.style.margin = '0';
-
       const isolatedPayload: ExportPayload = {
         ...payload,
         articleElement: isolatedArticle,
@@ -143,16 +134,17 @@ export const exportByCanvas = async (
 
       applyLayoutVars(isolatedPayload);
       await waitForExportRenderReady(isolatedArticle);
+      applySharedPaginationBreaks({
+        root: isolatedArticle,
+        paperSize: isolatedPayload.exportSetting.paperSize,
+        marginsTopMm: isolatedPayload.exportSetting.margins.top,
+        marginsBottomMm: isolatedPayload.exportSetting.margins.bottom,
+      });
 
       await withBodyClass('canvas-exporting', async () => {
         const worker = html2pdf()
           .set({
-            margin: [
-              payload.exportSetting.margins.top,
-              payload.exportSetting.margins.right,
-              payload.exportSetting.margins.bottom,
-              payload.exportSetting.margins.left,
-            ],
+            margin: 0,
             filename: fileName,
             image: {
               type: 'jpeg',
@@ -173,22 +165,9 @@ export const exportByCanvas = async (
             },
             pagebreak: {
               mode: ['css'],
-              avoid: [
-                '.markdown-body h1',
-                '.markdown-body h2',
-                '.markdown-body h3',
-                '.markdown-body h4',
-                '.markdown-body .md-reference-list',
-                '.markdown-body .md-table-caption',
-                '.md-figure',
-                '.katex-display-block',
-                '.markdown-body pre',
-                '.markdown-body table',
-                '.markdown-body blockquote',
-              ],
             },
           })
-          .from(contentRoot)
+          .from(isolatedArticle)
           .toPdf();
 
         const pdf = await worker.get('pdf');
