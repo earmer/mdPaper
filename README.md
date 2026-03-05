@@ -1,13 +1,13 @@
 # mdPaper（纯静态）
 
-`mdPaper` 是一个基于 **Vue 3 + TypeScript + Vite + TDesign Vue Next** 的纯前端期刊排版工具。用户填写期刊元信息（作者、单位、基金、摘要、关键词等）并输入 Markdown 正文后，可实时预览最终版式，并导出期刊风格 PDF。
+`mdPaper` 是一个基于 **Vue 3 + TypeScript + Vite + TDesign Vue Next** 的纯前端期刊排版工具。用户填写期刊元信息（作者、单位、通讯作者、联系方式、基金、摘要、关键词等）并输入 Markdown 正文后，可实时预览最终版式，并导出期刊风格 PDF。
 
 ## 功能特性
 
 - 纯静态：无后端 API、无云函数，全部在浏览器完成。
 - Markdown 渲染：标题、列表、引用、表格、链接、代码块、图片。
 - 数学公式：支持 `$...$` 与 `$$...$$`，由 KaTeX 渲染。
-- 期刊模块：标题、作者/单位、基金、摘要、关键词自动排版。
+- 期刊模块：标题、作者/单位/通讯作者、基金、摘要、关键词自动排版。
 - 标题编号：支持 `## / ### / ####` 自动编号为 `1 / 1.1 / 1.1.1`（附录可保留 `Appendix I`）。
 - 图表公式：支持 Figure/Table 自动题注编号与块级公式自动编号 `(1)(2)(3)`。
 - 快捷插入：支持标题、列表、表格、代码块、行内/块级公式、引用与图片语法。
@@ -45,6 +45,30 @@ pnpm preview
 
 `vite.config.ts` 已设置 `base: './'`，适配子路径静态托管。
 
+## 元信息字段（与当前代码一致）
+
+`metadata` 结构对应 `src/types/manuscript.ts` 中的 `ManuscriptMeta`：
+
+```ts
+interface ManuscriptMeta {
+  title: string;
+  subtitle: string;
+  abstract: string;
+  keywords: string[];
+  authors: Author[];
+  affiliations: Affiliation[];
+  correspondingAuthorId: string;
+  correspondingAuthorContact: string;
+  fundings: FundingItem[];
+}
+```
+
+通讯作者渲染规则（`src/utils/format.ts` + `src/components/PreviewPane.vue`）：
+
+- 作者行会在通讯作者姓名后追加 `*`，并与单位上标共存（如：`李娜²*`）。
+- 通讯作者信息单独一行显示：`* 通讯作者: 姓名 (联系方式)`。
+- 若联系方式为空，则显示为：`* 通讯作者: 姓名`。
+
 ## 字体文件与版权说明
 
 字体位于：`src/assets/fonts/`
@@ -75,12 +99,14 @@ pnpm preview
 ## 导出回归对照（手动）
 
 1. 在左侧「元信息」面板点击「填充导出测试样例 / Load export fixture」。
-2. 在预览区按页检查：重点看标题是否孤行、图表/公式是否被硬切。
-3. 选择导出并下载 PDF，逐页对比预览。
+2. 在预览首页检查作者区：通讯作者姓名后应出现 `*`（且与单位上标共存），并显示单独一行通讯作者说明。
+3. 在预览区按页检查：重点看标题是否孤行、图表/公式是否被硬切。
+4. 选择导出并下载 PDF，逐页对比预览。
 
 重点观察项：
 
 - 是否仍出现“第一页空白、正文从第二页开始”。
+- 通讯作者标记是否正确：例如 `张伟¹，李娜¹,²*，王磊²`，且有 `* 通讯作者: 李娜 (na.li@example.edu.cn)`。
 - 段落是否有明显孤行/寡行。
 - 表格、图片、块级公式是否出现底部裁切或残缺。
 - 预览与导出结果的页序是否一致。
