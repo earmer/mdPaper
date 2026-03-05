@@ -48,13 +48,18 @@ const applyInlineForRemoteImages = async (): Promise<void> => {
   for (const url of targets) {
     try {
       const dataUrl = await urlToDataUrl(url);
-      store.content = store.content.split(url).join(dataUrl);
+      const assetSource = store.addImageAsset(dataUrl);
+      store.content = store.content.split(url).join(assetSource);
     } catch {
       try {
         const response = await fetch(url, { mode: 'no-cors' });
         const blob = await response.blob();
+        if (blob.size <= 0) {
+          throw new Error('empty blob');
+        }
         const dataUrl = await fileToDataUrl(blob);
-        store.content = store.content.split(url).join(dataUrl);
+        const assetSource = store.addImageAsset(dataUrl);
+        store.content = store.content.split(url).join(assetSource);
       } catch {
         MessagePlugin.error(t('errors.fetchFailed', { url }));
       }

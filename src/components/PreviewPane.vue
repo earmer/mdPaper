@@ -22,6 +22,7 @@ const store = useManuscriptStore();
 const renderedHtml = computed(() =>
   renderMarkdown(store.content, {
     normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
+    resolveImageSrc: (source) => store.resolveImageAsset(source),
   }),
 );
 
@@ -38,10 +39,6 @@ const keywordLine = computed(() =>
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
     .join('; '),
-);
-
-const paperLabel = computed(() =>
-  store.exportSetting.paperSize === 'A4' ? t('preview.paperA4') : t('preview.paperLetter'),
 );
 
 const printRootRef = ref<HTMLElement | null>(null);
@@ -66,10 +63,27 @@ const previewWindowStyle = computed(() => ({
   height: `${paperSizeMeta.value.heightMm}mm`,
 }));
 
+const pageTopInsetPx = computed(() => {
+  const pageHeight = pageHeightPx.value;
+  const pageHeightMm = paperSizeMeta.value.heightMm;
+  if (pageHeight <= 0 || pageHeightMm <= 0) {
+    return 0;
+  }
+
+  const pxPerMm = pageHeight / pageHeightMm;
+  const inset = store.exportSetting.margins.top * pxPerMm;
+  return Math.max(0, Math.min(pageHeight * 0.45, inset));
+});
+
+const pageTopMaskStyle = computed(() => ({
+  height: `${pageTopInsetPx.value}px`,
+}));
+
 const pageTrackStyle = computed(() => {
   const offset = pageOffsets.value[currentPage.value - 1] ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
+  const roundedOffset = Math.round(offset);
   return {
-    transform: `translate3d(0, -${offset}px, 0)`,
+    transform: `translateY(-${roundedOffset}px)`,
   };
 });
 
@@ -79,7 +93,7 @@ const currentPageBottomMaskHeight = computed(() => {
     ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
   const nextStart = pageOffsets.value[currentPage.value] ?? start + pageHeightPx.value;
   const visibleHeight = Math.max(0, Math.min(pageHeightPx.value, nextStart - start));
-  const maskHeight = pageHeightPx.value - visibleHeight;
+  const maskHeight = pageHeightPx.value - pageTopInsetPx.value - visibleHeight;
 
   return maskHeight > 0.5 ? maskHeight : 0;
 });
@@ -101,6 +115,11 @@ const articleStyle = computed(() => ({
   '--paper-margin-bottom': `${store.exportSetting.margins.bottom}mm`,
   '--paper-margin-left': `${store.exportSetting.margins.left}mm`,
   '--paper-size': store.exportSetting.paperSize,
+}));
+
+const previewHeaderStyle = computed(() => ({
+  left: `${store.exportSetting.margins.left}mm`,
+  right: `${store.exportSetting.margins.right}mm`,
 }));
 
 const waitForPreviewAssets = async (): Promise<void> => {
@@ -197,6 +216,27 @@ interface ParagraphRange {
   height: number;
   minSplitHeight: number;
 }
+
+const collectForcedPageBreakOffsets = (
+  root: HTMLElement,
+  rootRect: DOMRect,
+): number[] => {
+  const offsets: number[] = [];
+  const separators = Array.from(root.querySelectorAll<HTMLElement>('.markdown-body hr'));
+
+  separators.forEach((separator) => {
+    const rect = separator.getBoundingClientRect();
+    const top = rect.top - rootRect.top;
+    if (!Number.isFinite(top) || top <= 0.5) {
+      return;
+    }
+
+    offsets.push(top);
+  });
+
+  offsets.sort((a, b) => a - b);
+  return offsets;
+};
 
 const resolveElementLineHeight = (element: HTMLElement): number => {
   const computedStyle = window.getComputedStyle(element);
@@ -345,25 +385,51 @@ const collectParagraphRanges = (
 
 const buildSmartPageOffsets = (
   pageHeight: number,
+  pageAdvance: number,
   totalHeight: number,
   ranges: BlockRange[],
   headingBindings: HeadingBindingRange[],
   paragraphRanges: ParagraphRange[],
+  forcedPageBreakOffsets: number[],
 ): number[] => {
   const offsets: number[] = [0];
-  const minPageHeight = pageHeight * 0.38;
-  const headingBindingWindow = pageHeight * 0.35;
-  const maxCrossBlockHeight = pageHeight * 0.95;
-  const maxStrictBlockHeight = pageHeight - 2;
+  const effectivePageAdvance = Math.max(pageHeight * 0.4, pageAdvance);
+  const minPageHeight = effectivePageAdvance * 0.38;
+  const headingBindingWindow = effectivePageAdvance * 0.35;
+  const maxCrossBlockHeight = effectivePageAdvance * 0.95;
+  const maxStrictBlockHeight = effectivePageAdvance - 2;
+  const forcedBreakEpsilon = 0.5;
+  let forcedBreakCursor = 0;
   let guard = 0;
 
   while (true) {
     const previous = offsets[offsets.length - 1] ?? 0;
-    if (previous + pageHeight >= totalHeight - 2) {
+    if (previous + effectivePageAdvance >= totalHeight - 2) {
       break;
     }
 
-    let next = previous + pageHeight;
+    while (forcedBreakCursor < forcedPageBreakOffsets.length) {
+      const currentBreak = forcedPageBreakOffsets[forcedBreakCursor];
+      if (currentBreak === undefined || currentBreak > previous + forcedBreakEpsilon) {
+        break;
+      }
+      forcedBreakCursor += 1;
+    }
+
+    const inRangeForcedBreak = forcedPageBreakOffsets[forcedBreakCursor];
+    if (
+      inRangeForcedBreak !== undefined
+      && inRangeForcedBreak <= previous + effectivePageAdvance + forcedBreakEpsilon
+    ) {
+      offsets.push(inRangeForcedBreak);
+      guard += 1;
+      if (guard > 2048) {
+        break;
+      }
+      continue;
+    }
+
+    let next = previous + effectivePageAdvance;
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
       const initialNext = next;
@@ -422,7 +488,16 @@ const buildSmartPageOffsets = (
     }
 
     if (next <= previous + 1) {
-      next = previous + pageHeight;
+      next = previous + effectivePageAdvance;
+    }
+
+    const forcedBeforeNext = forcedPageBreakOffsets[forcedBreakCursor];
+    if (
+      forcedBeforeNext !== undefined
+      && forcedBeforeNext > previous + forcedBreakEpsilon
+      && forcedBeforeNext < next - forcedBreakEpsilon
+    ) {
+      next = forcedBeforeNext;
     }
 
     offsets.push(next);
@@ -435,42 +510,11 @@ const buildSmartPageOffsets = (
   return offsets;
 };
 
-const fitFormulaBlocks = (root: HTMLElement): void => {
-  const markdownBody = root.querySelector<HTMLElement>('.markdown-body');
-  if (markdownBody === null) {
-    return;
-  }
-
-  const formulaBlocks = Array.from(
-    markdownBody.querySelectorAll<HTMLElement>('.katex-display-block'),
-  );
-  if (formulaBlocks.length === 0) {
-    return;
-  }
-
-  for (const block of formulaBlocks) {
-    const display = block.querySelector<HTMLElement>('.katex-display');
-    const katex = display?.querySelector<HTMLElement>('.katex');
-    if (display === null || display === undefined || katex === null || katex === undefined) {
-      continue;
-    }
-
-    display.style.fontSize = '1em';
-    const naturalWidth = Math.max(1, Math.ceil(katex.scrollWidth));
-    const availableWidth = Math.max(1, Math.floor(block.clientWidth) - 2);
-    const scale = Math.min(1, availableWidth / naturalWidth);
-    display.style.fontSize = `${scale.toFixed(4)}em`;
-    block.classList.toggle('katex-display-block--scaled', scale < 0.999);
-  }
-};
-
 const recalculatePagination = (): void => {
   const root = printRootRef.value;
   if (root === null) {
     return;
   }
-
-  fitFormulaBlocks(root);
 
   const rect = root.getBoundingClientRect();
   if (rect.width <= 0) {
@@ -480,17 +524,50 @@ const recalculatePagination = (): void => {
   const paperRatio = paperSizeMeta.value.heightMm / paperSizeMeta.value.widthMm;
   const physicalPageHeight = rect.width * paperRatio;
   pageHeightPx.value = physicalPageHeight;
+  const pageTopInset = pageTopInsetPx.value;
+  const pageAdvance = Math.max(1, physicalPageHeight - pageTopInset);
+  const toOffsetCoordinate = (value: number): number => Math.max(0, value - pageTopInset);
 
   const totalContentHeight = Math.max(measureTotalContentHeight(root, rect), physicalPageHeight);
-  const avoidRanges = collectAvoidBlockRanges(root, rect);
-  const headingBindings = collectHeadingBindingRanges(root, rect, physicalPageHeight);
-  const paragraphRanges = collectParagraphRanges(root, rect);
+  const avoidRanges = collectAvoidBlockRanges(root, rect)
+    .map((range) => ({
+      ...range,
+      top: toOffsetCoordinate(range.top),
+      bottom: toOffsetCoordinate(range.bottom),
+    }))
+    .filter((range) => range.bottom > range.top + 0.5);
+  const headingBindings = collectHeadingBindingRanges(root, rect, pageAdvance)
+    .map((binding) => ({
+      top: toOffsetCoordinate(binding.top),
+      keepUntil: toOffsetCoordinate(binding.keepUntil),
+    }))
+    .filter((binding) => binding.keepUntil > binding.top + 0.5);
+  const paragraphRanges = collectParagraphRanges(root, rect)
+    .map((paragraph) => ({
+      ...paragraph,
+      top: toOffsetCoordinate(paragraph.top),
+      bottom: toOffsetCoordinate(paragraph.bottom),
+    }))
+    .filter((paragraph) => paragraph.bottom > paragraph.top + 0.5);
+  const forcedPageBreakOffsets = collectForcedPageBreakOffsets(root, rect)
+    .map((offset) => toOffsetCoordinate(offset))
+    .filter((offset, index, list) => {
+      if (offset <= 0.5) {
+        return false;
+      }
+
+      const previous = list[index - 1];
+      return previous === undefined || Math.abs(offset - previous) > 0.5;
+    });
+  const totalOffsetHeight = Math.max(pageAdvance, toOffsetCoordinate(totalContentHeight));
   pageOffsets.value = buildSmartPageOffsets(
     physicalPageHeight,
-    totalContentHeight,
+    pageAdvance,
+    totalOffsetHeight,
     avoidRanges,
     headingBindings,
     paragraphRanges,
+    forcedPageBreakOffsets,
   );
   const totalPages = Math.max(1, pageOffsets.value.length);
   pageCount.value = totalPages;
@@ -630,9 +707,7 @@ onBeforeUnmount(() => {
   <section class="preview-pane">
     <div class="preview-pane__header">
       <h2>{{ t('preview.title') }}</h2>
-      <p>{{ t('preview.live') }}</p>
       <div class="preview-pane__pagination">
-        <span class="preview-pane__paper">{{ paperLabel }}</span>
         <TButton
           size="small"
           variant="outline"
@@ -656,6 +731,20 @@ onBeforeUnmount(() => {
     <div class="preview-pane__stage">
       <div class="preview-paper-viewer">
         <div class="preview-page-window" :style="previewWindowStyle">
+          <header
+            class="journal-page-header-static preview-page-header-overlay"
+            :style="previewHeaderStyle"
+            aria-hidden="true"
+          >
+            <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
+            <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
+          </header>
+          <div
+            v-if="pageTopInsetPx > 0"
+            class="preview-page-top-mask"
+            :style="pageTopMaskStyle"
+            aria-hidden="true"
+          />
           <div class="preview-page-track" :style="pageTrackStyle">
             <div
               id="journal-print-root"

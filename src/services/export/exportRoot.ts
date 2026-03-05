@@ -48,24 +48,19 @@ const waitForFontsReady = async (): Promise<void> => {
   }
 };
 
-const fitDisplayMathBlocks = (article: HTMLElement): void => {
+const normalizeDisplayMathBlocks = (article: HTMLElement): void => {
   const formulaBlocks = Array.from(
     article.querySelectorAll<HTMLElement>('.katex-display-block'),
   );
 
   for (const block of formulaBlocks) {
     const display = block.querySelector<HTMLElement>('.katex-display');
-    const katex = display?.querySelector<HTMLElement>('.katex');
-    if (display === null || display === undefined || katex === null || katex === undefined) {
+    if (display === null || display === undefined) {
       continue;
     }
 
-    display.style.fontSize = '1em';
-    const naturalWidth = Math.max(1, Math.ceil(katex.scrollWidth));
-    const availableWidth = Math.max(1, Math.floor(block.clientWidth) - 2);
-    const scale = Math.min(1, availableWidth / naturalWidth);
-    display.style.fontSize = `${scale.toFixed(4)}em`;
-    block.classList.toggle('katex-display-block--scaled', scale < 0.999);
+    display.style.removeProperty('font-size');
+    block.classList.remove('katex-display-block--scaled');
   }
 };
 
@@ -103,11 +98,11 @@ export const waitForExportRenderReady = async (article: HTMLElement): Promise<vo
   await nextTick();
   await nextTick();
   await waitForFontsReady();
-  fitDisplayMathBlocks(article);
+  normalizeDisplayMathBlocks(article);
 
   const images = Array.from(article.querySelectorAll<HTMLImageElement>('img'));
   await Promise.allSettled(images.map((img) => waitForImageReady(img)));
-  fitDisplayMathBlocks(article);
+  normalizeDisplayMathBlocks(article);
   await nextTick();
 };
 

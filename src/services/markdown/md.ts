@@ -32,6 +32,28 @@ markdown.use(linkAttributes, {
   },
 });
 
+interface MarkdownRenderEnv {
+  resolveImageSrc?: (source: string) => string | null;
+}
+
+const resolveImageSrcByEnv = (source: string, env: unknown): string => {
+  if (typeof env !== 'object' || env === null) {
+    return source;
+  }
+
+  const maybeEnv = env as MarkdownRenderEnv;
+  if (typeof maybeEnv.resolveImageSrc !== 'function') {
+    return source;
+  }
+
+  const resolved = maybeEnv.resolveImageSrc(source);
+  if (typeof resolved !== 'string' || resolved.trim().length === 0) {
+    return source;
+  }
+
+  return resolved;
+};
+
 const defaultImageRender = markdown.renderer.rules.image;
 
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
@@ -44,10 +66,11 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const title = token.attrGet('title') ?? '';
   const alt = token.content || self.renderInlineAsText(token.children ?? [], options, env);
   const safeAlt = markdown.utils.escapeHtml(alt);
-  const safeSrc = markdown.utils.escapeHtml(src);
+  const resolvedSrc = resolveImageSrcByEnv(src, env);
+  const safeSrc = markdown.utils.escapeHtml(resolvedSrc);
   const safeTitle = markdown.utils.escapeHtml(title);
 
-  if (src.length === 0) {
+  if (resolvedSrc.length === 0) {
     return defaultImageRender?.(tokens, idx, options, env, self) ?? '';
   }
 
@@ -58,6 +81,36 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
 };
 
 const escapeHtml = (text: string): string => markdown.utils.escapeHtml(text);
+
+const normalizePageBreakMarkers = (source: string): string => {
+  const lines = source.split('\n');
+  const normalized: string[] = [];
+  let activeFence: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const fenceStart = trimmed.match(/^(`{3,}|~{3,})/u);
+    if (fenceStart !== null) {
+      const marker = fenceStart[1] ?? '';
+      if (activeFence === null) {
+        activeFence = marker[0] ?? null;
+      } else if ((marker[0] ?? '') === activeFence) {
+        activeFence = null;
+      }
+      normalized.push(line);
+      continue;
+    }
+
+    if (activeFence === null && /^-{4,}$/u.test(trimmed)) {
+      normalized.push('', '---', '');
+      continue;
+    }
+
+    normalized.push(line);
+  }
+
+  return normalized.join('\n');
+};
 
 const stripHeadingOrdinal = (
   input: string,
@@ -307,11 +360,15 @@ const normalizeDisplayMathParagraph = (html: string): string => {
 
 export interface RenderMarkdownOptions {
   normalizeJournalHeadings?: boolean;
+  resolveImageSrc?: (source: string) => string | null;
 }
 
 export const renderMarkdown = (source: string, options: RenderMarkdownOptions = {}): string => {
-  const normalizedSource = normalizeMathInMarkdown(source);
-  const rendered = markdown.render(normalizedSource);
+  const normalizedPageBreakSource = normalizePageBreakMarkers(source);
+  const normalizedSource = normalizeMathInMarkdown(normalizedPageBreakSource);
+  const rendered = markdown.render(normalizedSource, {
+    resolveImageSrc: options.resolveImageSrc,
+  } satisfies MarkdownRenderEnv);
   const normalizedDisplayMath = normalizeDisplayMathParagraph(rendered);
   const normalizedCaptions = normalizeFigureAndTableCaptions(normalizedDisplayMath);
   const normalizedReferences = normalizeReferenceLists(normalizedCaptions);

@@ -30,8 +30,8 @@ export const buildExportFileName = (title: string, prefix: string): string => {
   return `${safeTitle}-${nowSlug()}.pdf`;
 };
 
-export const toInlineImageMarkdown = (alt: string, dataUrl: string): string =>
-  `![${alt}](${dataUrl})`;
+export const toInlineImageMarkdown = (alt: string, source: string): string =>
+  `![${alt}](${source})`;
 
 export const parseRemoteImageUrls = (markdown: string): string[] => {
   const regexp = /!\[[^\]]*\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;

@@ -36,6 +36,29 @@ const RECOVER_COMMANDS: Record<string, string> = {
 };
 
 const commandPattern = new RegExp(`(^|[^\\\\])\\b(${COMMON_COMMANDS.join('|')})\\b`, 'g');
+const textCommandPattern = /\\(?:text|operatorname)\{([^{}]*)\}/g;
+
+interface ProtectedSegments {
+  value: string;
+  restore: (input: string) => string;
+}
+
+const protectTextCommandSegments = (input: string): ProtectedSegments => {
+  const cache: string[] = [];
+  const value = input.replace(textCommandPattern, (full) => {
+    const key = `@@__MATH_TEXT_SEGMENT_${cache.length}__@@`;
+    cache.push(full);
+    return key;
+  });
+
+  return {
+    value,
+    restore: (raw: string): string =>
+      raw.replace(/@@__MATH_TEXT_SEGMENT_(\d+)__@@/g, (_full, index: string) => {
+        return cache[Number(index)] ?? '';
+      }),
+  };
+};
 
 const normalizeMathBody = (raw: string): string => {
   let body = raw;
@@ -48,9 +71,14 @@ const normalizeMathBody = (raw: string): string => {
     return recovered ? `\\${recovered}` : full;
   });
 
+  const protectedTextSegments = protectTextCommandSegments(body);
+  body = protectedTextSegments.value;
+
   body = body.replace(commandPattern, (_full, prefix: string, command: string) => {
     return `${prefix}\\${command}`;
   });
+
+  body = protectedTextSegments.restore(body);
 
   return body;
 };

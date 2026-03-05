@@ -54,6 +54,8 @@ export interface ImageOption {
   maxWidth: number;
 }
 
+export type ImageAssetMap = Record<string, string>;
+
 export interface ExportSetting {
   engine: ExportEngine;
   paperSize: PaperSize;
@@ -73,6 +75,7 @@ export interface ManuscriptDraft {
   content: string;
   exportSetting: ExportSetting;
   imageOption: ImageOption;
+  imageAssets: ImageAssetMap;
 }
 
 export interface ExportPayload {

@@ -7,12 +7,19 @@ import type {
   ExportEngine,
   ExportSetting,
   FundingItem,
+  ImageAssetMap,
   ImageOption,
   LocaleType,
   ManuscriptMeta,
   ThemeMode,
 } from '@/types/manuscript';
 import { parseRemoteImageUrls } from '@/utils/format';
+import {
+  createImageAssetId,
+  normalizeImageAssetMap,
+  parseImageAssetId,
+  toImageAssetSrc,
+} from '@/utils/imageAsset';
 
 const DRAFT_KEY = 'mdpaper-draft-v1';
 const LEGACY_DRAFT_KEYS = ['journal-pdf-draft-v1'];
@@ -37,6 +44,7 @@ interface StoreState {
   content: string;
   exportSetting: ExportSetting;
   imageOption: ImageOption;
+  imageAssets: ImageAssetMap;
 }
 
 const applyLockedExportLayout = (setting: ExportSetting): void => {
@@ -58,6 +66,7 @@ const cloneSample = (): StoreState => {
     content: data.content,
     exportSetting: data.exportSetting,
     imageOption: data.imageOption,
+    imageAssets: normalizeImageAssetMap(data.imageAssets),
   };
 };
 
@@ -141,11 +150,13 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.exportSetting = data.exportSetting;
       applyLockedExportLayout(this.exportSetting);
       this.imageOption = data.imageOption;
+      this.imageAssets = data.imageAssets;
     },
     loadExportFixture(): void {
       this.metadata = normalizeMetadata(structuredClone(exportRegressionFixture.metadata));
       this.content = exportRegressionFixture.content;
       applyLockedExportLayout(this.exportSetting);
+      this.imageAssets = {};
     },
     addAuthor(): void {
       const firstAffiliation = this.metadata.affiliations[0]?.id;
@@ -198,6 +209,7 @@ export const useManuscriptStore = defineStore('manuscript', {
         content: this.content,
         exportSetting: this.exportSetting,
         imageOption: this.imageOption,
+        imageAssets: this.imageAssets,
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     },
@@ -236,6 +248,7 @@ export const useManuscriptStore = defineStore('manuscript', {
         this.exportSetting = parsed.exportSetting;
         applyLockedExportLayout(this.exportSetting);
         this.imageOption = parsed.imageOption;
+        this.imageAssets = normalizeImageAssetMap(parsed.imageAssets);
         return true;
       } catch {
         return false;
@@ -250,6 +263,7 @@ export const useManuscriptStore = defineStore('manuscript', {
     clearAllInputs(): void {
       this.metadata = createEmptyMetadata();
       this.content = '';
+      this.imageAssets = {};
 
       if (this.enableDraftPersistence) {
         this.saveDraft();
@@ -257,6 +271,27 @@ export const useManuscriptStore = defineStore('manuscript', {
       }
 
       this.clearDraft();
+    },
+    addImageAsset(dataUrl: string): string {
+      if (!dataUrl.startsWith('data:image/')) {
+        throw new Error('Invalid image asset payload');
+      }
+
+      const assetId = createImageAssetId();
+      this.imageAssets = {
+        ...this.imageAssets,
+        [assetId]: dataUrl,
+      };
+
+      return toImageAssetSrc(assetId);
+    },
+    resolveImageAsset(source: string): string | null {
+      const assetId = parseImageAssetId(source);
+      if (assetId === null) {
+        return null;
+      }
+
+      return this.imageAssets[assetId] ?? null;
     },
   },
 });

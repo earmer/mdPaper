@@ -81,7 +81,7 @@ $$
 
 ### 2.3 图文与表格示例
 
-![系统流程图](https://picsum.photos/900/360 "系统流程示意")
+![系统流程图](/fixture-paper-figure.svg "系统流程示意")
 
 Table 1: 关键模块输入输出
 
@@ -129,4 +129,5 @@ a = \arg\max_{a \in \mathcal{A}} Q(s, a)
     quality: 0.82,
     maxWidth: 1800,
   },
+  imageAssets: {},
 };

@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
 import { compressImage } from '@/services/image/compressImage';
 import { fileToDataUrl, urlToDataUrl } from '@/services/image/imageToBase64';
+import { renderMarkdown } from '@/services/markdown/md';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { defaultImageAlt, toInlineImageMarkdown } from '@/utils/format';
 
 const { t } = useI18n();
 const store = useManuscriptStore();
 const wrapperRef = ref<HTMLElement | null>(null);
+const fullscreenEditorRef = ref<HTMLElement | null>(null);
+const lastFocusedTextarea = ref<HTMLTextAreaElement | null>(null);
+const fullscreenVisible = ref(false);
 const dragging = ref(false);
 const processing = ref(false);
 const dragDepth = ref(0);
@@ -66,23 +70,41 @@ const toolbarActions = computed<ToolbarAction[]>(() => [
     snippet: '\n> quote\n',
   },
   {
+    key: 'pageBreak',
+    label: t('form.insertPageBreak'),
+    icon: 'mdi:page-next-outline',
+    snippet: '\n\n----\n\n',
+  },
+  {
     key: 'image',
     label: t('form.insertImage'),
     icon: 'mdi:image-outline',
-    snippet: '\n![](data:image/png;base64,...)\n',
+    snippet: '\n![](https://example.com/figure.png)\n',
   },
 ]);
 
-const getTextarea = (): HTMLTextAreaElement | null => {
-  if (wrapperRef.value === null) {
-    return null;
+const renderedFullscreenHtml = computed(() =>
+  renderMarkdown(store.content, {
+    normalizeJournalHeadings: false,
+    resolveImageSrc: (source) => store.resolveImageAsset(source),
+  }),
+);
+
+const getTextareaFromRoot = (root: HTMLElement | null): HTMLTextAreaElement | null =>
+  root?.querySelector('textarea') ?? null;
+
+const resolveActiveTextarea = (): HTMLTextAreaElement | null => {
+  if (fullscreenVisible.value) {
+    return getTextareaFromRoot(fullscreenEditorRef.value)
+      ?? lastFocusedTextarea.value
+      ?? getTextareaFromRoot(wrapperRef.value);
   }
 
-  return wrapperRef.value.querySelector('textarea');
+  return lastFocusedTextarea.value ?? getTextareaFromRoot(wrapperRef.value);
 };
 
 const insertAtCursor = (snippet: string): void => {
-  const textarea = getTextarea();
+  const textarea = resolveActiveTextarea();
   if (textarea === null) {
     store.content = `${store.content}${snippet}`;
     return;
@@ -98,11 +120,30 @@ const insertAtCursor = (snippet: string): void => {
     textarea.focus();
     const cursor = start + snippet.length;
     textarea.setSelectionRange(cursor, cursor);
+    lastFocusedTextarea.value = textarea;
   });
 };
 
 const insertTemplate = (snippet: string): void => {
   insertAtCursor(snippet);
+};
+
+const markFocusedTextarea = (event: FocusEvent): void => {
+  if (!(event.target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  lastFocusedTextarea.value = event.target;
+};
+
+const openFullscreenEditor = async (): Promise<void> => {
+  fullscreenVisible.value = true;
+  await nextTick();
+  const textarea = getTextareaFromRoot(fullscreenEditorRef.value);
+  textarea?.focus();
+  if (textarea !== null) {
+    lastFocusedTextarea.value = textarea;
+  }
 };
 
 const buildImageMarkdown = async (file: File): Promise<string> => {
@@ -117,7 +158,8 @@ const buildImageMarkdown = async (file: File): Promise<string> => {
 
   const dataUrl = await fileToDataUrl(targetBlob);
   const alt = defaultImageAlt();
-  return `${toInlineImageMarkdown(alt, dataUrl)}\n`;
+  const assetSource = store.addImageAsset(dataUrl);
+  return `${toInlineImageMarkdown(alt, assetSource)}\n`;
 };
 
 const isLikelyImageFile = (file: File): boolean => {
@@ -179,18 +221,39 @@ const parseUriList = (raw: string): string[] =>
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#'));
 
-const extractImageUrl = (event: DragEvent): string | null => {
-  const transfer = event.dataTransfer;
+const extractImageUrlFromHtml = (rawHtml: string): string | null => {
+  const html = rawHtml.trim();
+  if (html.length === 0 || typeof DOMParser === 'undefined') {
+    return null;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const image = doc.querySelector('img[src]');
+  const source = image?.getAttribute('src')?.trim() ?? '';
+  if (source.startsWith('data:image/') || /^https?:\/\/\S+$/i.test(source)) {
+    return source;
+  }
+
+  return null;
+};
+
+const extractImageUrlFromTransfer = (transfer: DataTransfer | null): string | null => {
   if (transfer === null) {
     return null;
   }
 
   const uriList = parseUriList(transfer.getData('text/uri-list'));
   const plainText = transfer.getData('text/plain').trim();
+  const htmlText = transfer.getData('text/html');
+  const htmlImage = extractImageUrlFromHtml(htmlText);
 
   const candidates = [...uriList];
   if (plainText.length > 0) {
     candidates.push(plainText);
+  }
+  if (htmlImage !== null) {
+    candidates.push(htmlImage);
   }
 
   for (const value of candidates) {
@@ -206,18 +269,43 @@ const extractImageUrl = (event: DragEvent): string | null => {
   return null;
 };
 
+const extractImageUrl = (event: DragEvent): string | null =>
+  extractImageUrlFromTransfer(event.dataTransfer);
+
+const extractClipboardFiles = (event: ClipboardEvent): File[] => {
+  const transfer = event.clipboardData;
+  if (transfer === null) {
+    return [];
+  }
+
+  const files = Array.from(transfer.files);
+  if (files.length > 0) {
+    return files;
+  }
+
+  if (transfer.items === undefined) {
+    return [];
+  }
+
+  return Array.from(transfer.items)
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+};
+
 const processImageUrl = async (url: string): Promise<boolean> => {
   const alt = defaultImageAlt();
 
   if (url.startsWith('data:image/')) {
-    insertAtCursor(`${toInlineImageMarkdown(alt, url)}\n`);
+    const assetSource = store.addImageAsset(url);
+    insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
     MessagePlugin.success(t('app.imageInserted', { name: 'data-url' }));
     return true;
   }
 
   try {
     const dataUrl = await urlToDataUrl(url);
-    insertAtCursor(`${toInlineImageMarkdown(alt, dataUrl)}\n`);
+    const assetSource = store.addImageAsset(dataUrl);
+    insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
     MessagePlugin.success(t('app.imageInserted', { name: url }));
     return true;
   } catch {
@@ -228,7 +316,8 @@ const processImageUrl = async (url: string): Promise<boolean> => {
         throw new Error('empty blob');
       }
       const dataUrl = await fileToDataUrl(blob);
-      insertAtCursor(`${toInlineImageMarkdown(alt, dataUrl)}\n`);
+      const assetSource = store.addImageAsset(dataUrl);
+      insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
       MessagePlugin.success(t('app.imageInserted', { name: url }));
       return true;
     } catch {
@@ -286,6 +375,25 @@ const onDrop = async (event: DragEvent): Promise<void> => {
   MessagePlugin.error(t('errors.invalidImage'));
 };
 
+const onPaste = async (event: ClipboardEvent): Promise<void> => {
+  const pastedFiles = extractClipboardFiles(event);
+  if (pastedFiles.length > 0) {
+    event.preventDefault();
+    event.stopPropagation();
+    await processFiles(pastedFiles);
+    return;
+  }
+
+  const imageUrl = extractImageUrlFromTransfer(event.clipboardData);
+  if (imageUrl === null) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  void (await processImageUrl(imageUrl));
+};
+
 const onDragOver = (event: DragEvent): void => {
   if (!shouldHandleDrag(event)) {
     return;
@@ -325,57 +433,82 @@ const onDragLeave = (event: DragEvent): void => {
   >
     <TAlert theme="info" :message="t('form.dropHint')" close />
 
-    <div class="markdown-editor__toolbar">
-      <div class="markdown-editor__toolbar-title">{{ t('form.editorToolbar') }}</div>
-      <TSpace wrap>
-        <TButton
-          v-for="action in toolbarActions"
-          :key="action.key"
-          variant="outline"
-          size="small"
-          @click="insertTemplate(action.snippet)"
-        >
-          <template #icon>
-            <Icon :icon="action.icon" />
-          </template>
-          {{ action.label }}
-        </TButton>
-      </TSpace>
-    </div>
-
     <TForm label-align="top">
-      <TFormItem :label="t('form.contentEditor')">
+      <TFormItem class="markdown-editor__content-item">
+        <div class="markdown-editor__content-head">
+          <span class="markdown-editor__content-title">{{ t('form.contentEditor') }}</span>
+          <TButton size="small" variant="outline" @click="openFullscreenEditor">
+            <template #icon>
+              <Icon icon="mdi:fullscreen" />
+            </template>
+            {{ t('form.fullscreenEditor') }}
+          </TButton>
+        </div>
+
+        <div class="markdown-editor__toolbar">
+          <div class="markdown-editor__toolbar-title">{{ t('form.editorToolbar') }}</div>
+          <div class="markdown-editor__toolbar-actions">
+            <TButton
+              v-for="action in toolbarActions"
+              :key="action.key"
+              class="markdown-editor__toolbar-button"
+              variant="outline"
+              size="small"
+              :title="action.label"
+              :aria-label="action.label"
+              @click="insertTemplate(action.snippet)"
+            >
+              <template #icon>
+                <Icon :icon="action.icon" />
+              </template>
+            </TButton>
+          </div>
+        </div>
+
         <TTextarea
           v-model="store.content"
           class="markdown-editor__textarea"
           :placeholder="t('form.contentPlaceholder')"
           :autosize="{ minRows: 22, maxRows: 40 }"
+          @focus="markFocusedTextarea"
+          @paste="onPaste"
         />
       </TFormItem>
 
       <TFormItem :label="t('form.imageCompression')">
-        <TSpace direction="vertical" style="width: 100%" size="10px">
+        <TSpace
+          direction="vertical"
+          style="width: 100%"
+          size="10px"
+          class="markdown-editor__image-options"
+        >
           <TSpace align="center">
             <TSwitch v-model="store.imageOption.enableCompression" />
             <span>{{ t('form.imageCompressionEnable') }}</span>
           </TSpace>
 
-          <TInputNumber
-            v-model="store.imageOption.quality"
-            :label="t('form.imageQuality')"
-            :min="0.2"
-            :max="1"
-            :step="0.01"
-            :decimal-places="2"
-          />
+          <div class="markdown-editor__image-option-row">
+            <span class="markdown-editor__image-option-label">{{ t('form.imageQuality') }}</span>
+            <TInputNumber
+              v-model="store.imageOption.quality"
+              class="markdown-editor__image-option-input"
+              :min="0.2"
+              :max="1"
+              :step="0.01"
+              :decimal-places="2"
+            />
+          </div>
 
-          <TInputNumber
-            v-model="store.imageOption.maxWidth"
-            :label="t('form.imageMaxWidth')"
-            :min="320"
-            :max="5000"
-            :step="10"
-          />
+          <div class="markdown-editor__image-option-row">
+            <span class="markdown-editor__image-option-label">{{ t('form.imageMaxWidth') }}</span>
+            <TInputNumber
+              v-model="store.imageOption.maxWidth"
+              class="markdown-editor__image-option-input"
+              :min="320"
+              :max="5000"
+              :step="10"
+            />
+          </div>
         </TSpace>
       </TFormItem>
     </TForm>
@@ -384,4 +517,60 @@ const onDragLeave = (event: DragEvent): void => {
       {{ t('app.processing') }}
     </div>
   </div>
+
+  <TDialog
+    v-model:visible="fullscreenVisible"
+    :header="t('form.fullscreenEditorTitle')"
+    width="94vw"
+    top="2vh"
+    :confirm-btn="null"
+    :cancel-btn="null"
+    destroy-on-close
+  >
+    <div class="markdown-editor-fullscreen">
+      <section ref="fullscreenEditorRef" class="markdown-editor-fullscreen__pane">
+        <div class="markdown-editor-fullscreen__pane-title">
+          {{ t('form.contentEditor') }}
+        </div>
+        <div class="markdown-editor__toolbar markdown-editor__toolbar--fullscreen">
+          <div class="markdown-editor__toolbar-title">{{ t('form.editorToolbar') }}</div>
+          <div class="markdown-editor__toolbar-actions">
+            <TButton
+              v-for="action in toolbarActions"
+              :key="`fullscreen-${action.key}`"
+              class="markdown-editor__toolbar-button"
+              variant="outline"
+              size="small"
+              :title="action.label"
+              :aria-label="action.label"
+              @click="insertTemplate(action.snippet)"
+            >
+              <template #icon>
+                <Icon :icon="action.icon" />
+              </template>
+            </TButton>
+          </div>
+        </div>
+        <TTextarea
+          v-model="store.content"
+          class="markdown-editor__textarea markdown-editor-fullscreen__textarea"
+          :placeholder="t('form.contentPlaceholder')"
+          :autosize="false"
+          @focus="markFocusedTextarea"
+          @paste="onPaste"
+        />
+      </section>
+
+      <section class="markdown-editor-fullscreen__pane markdown-editor-fullscreen__preview-pane">
+        <div class="markdown-editor-fullscreen__pane-title">
+          {{ t('form.liveMarkdownPreview') }}
+        </div>
+        <div
+          class="markdown-editor-fullscreen__preview markdown-body"
+          :lang="store.locale"
+          v-html="renderedFullscreenHtml"
+        />
+      </section>
+    </div>
+  </TDialog>
 </template>
