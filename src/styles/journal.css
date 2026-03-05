@@ -75,6 +75,34 @@ body.theme-dark .top-bar {
   font-weight: 700;
 }
 
+.top-bar__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-bar__github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-muted);
+  text-decoration: none;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.top-bar__github-link:hover {
+  color: #111827;
+}
+
+body.theme-dark .top-bar__github-link:hover {
+  color: #f9fafb;
+}
+
+.top-bar__github-link .iconify {
+  font-size: 18px;
+}
+
 .top-bar__subtitle {
   margin: 0;
   font-size: 12px;
@@ -726,10 +754,10 @@ body.canvas-exporting .journal-page-header-static {
   page-break-inside: avoid;
 }
 
-.markdown-body h1 + *,
-.markdown-body h2 + *,
-.markdown-body h3 + *,
-.markdown-body h4 + * {
+.markdown-body h1 + :not(hr),
+.markdown-body h2 + :not(hr),
+.markdown-body h3 + :not(hr),
+.markdown-body h4 + :not(hr) {
   break-before: avoid-page;
   page-break-before: avoid;
 }

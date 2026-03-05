@@ -10,6 +10,8 @@
 - 期刊模块：标题、作者/单位、基金、摘要、关键词自动排版。
 - 标题编号：支持 `## / ### / ####` 自动编号为 `1 / 1.1 / 1.1.1`（附录可保留 `Appendix I`）。
 - 图表公式：支持 Figure/Table 自动题注编号与块级公式自动编号 `(1)(2)(3)`。
+- 快捷插入：支持标题、列表、表格、代码块、行内/块级公式、引用、换页符与图片语法。
+- 强制换页：支持 `----`（四个及以上 `-`）作为换页标记，预览与 PDF 导出保持一致。
 - 正文单栏排版：默认 A4 + 25mm 页边距，支持字号、行距、首行缩进。
 - 页眉页脚：页眉显示“期刊名 + 论文标题”，页脚显示 `Page N`。
 - 图片拖拽：拖入编辑器自动转 base64 Markdown，支持压缩（质量/最大宽）。
@@ -19,6 +21,7 @@
 - 一键清空：支持二次确认后清空当前输入与本地缓存。
 - i18n：`zh-CN` / `en-US`。
 - 亮/暗模式：预览纸张区域保持白纸视觉，周边跟随主题变化。
+- 顶栏外链：标题 `mdPaper` 右侧提供 GitHub 图标入口，直达项目仓库。
 
 ## 本地运行
 
@@ -76,6 +79,21 @@ pnpm preview
 - 投稿版优先 `paged`
 - 快速分享可用 `canvas`
 
+## 换页符说明
+
+编辑器工具栏「插入换页符」会插入：
+
+```text
+----
+```
+
+规则与行为：
+
+- 使用独占一行的 `----`（或更多 `-`）可触发强制换页。
+- 在非代码块区域，系统会自动将该标记标准化为 Markdown 分隔线并作为分页锚点。
+- 预览分页会读取该锚点；`Paged` 与 `Canvas` 两种导出引擎均会按该标记换页。
+- 若写在代码块围栏（` ``` ` 或 ` ~~~ `）内，则会被视为代码内容，不触发分页。
+
 ## 导出回归对照（手动）
 
 1. 在左侧「元信息」面板点击「填充导出测试样例 / Load export fixture」。
@@ -109,7 +127,15 @@ pnpm preview
 - 确认公式语法为 KaTeX 支持的 LaTeX 子集
 - 对复杂公式优先使用 `paged` 引擎
 
-### 3. 分页不理想
+### 3. 换页符在预览生效，但导出 PDF 未生效
+
+处理：
+
+- 使用独占一行的 `----`（或更多 `-`）作为换页符。
+- 避免将换页符放入代码块围栏内。
+- 当前版本 `Paged` 与 `Canvas` 都支持按该标记强制分页；若行为异常，先刷新页面并重试导出。
+
+### 4. 分页不理想
 
 处理：
 
@@ -117,7 +143,7 @@ pnpm preview
 - 大表格/大图尽量缩小宽度，避免跨页冲突
 - 对严格页眉页脚场景优先 `paged`
 
-### 4. 字体风格与期刊要求不一致
+### 5. 字体风格与期刊要求不一致
 
 处理：
 
@@ -130,6 +156,8 @@ pnpm preview
 src/
   main.ts
   App.vue
+  constants/
+    journal.ts
   assets/
     fonts/
   styles/
@@ -153,9 +181,11 @@ src/
   services/
     markdown/
       md.ts
+      normalizeMath.ts
       sanitize.ts
     export/
       exportPdf.ts
+      exportRoot.ts
       helpers.ts
       engines/
         pagedEngine.ts
@@ -167,6 +197,11 @@ src/
     dom.ts
     format.ts
     debounce.ts
+    imageAsset.ts
   data/
     sampleManuscript.ts
+    exportFixture.ts
+  types/
+    manuscript.ts
+    modules.d.ts
 ```

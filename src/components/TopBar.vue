@@ -57,7 +57,18 @@ const clearAllInputs = (): void => {
   <header class="top-bar">
     <div class="top-bar__brand">
       <div>
-        <div class="top-bar__title">{{ t('app.title') }}</div>
+        <div class="top-bar__title-row">
+          <div class="top-bar__title">{{ t('app.title') }}</div>
+          <a
+            class="top-bar__github-link"
+            href="https://github.com/UMInk-Lab/mdPaper"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open mdPaper GitHub repository"
+          >
+            <Icon icon="mdi:github" />
+          </a>
+        </div>
         <p class="top-bar__subtitle">{{ t('app.subtitle') }}</p>
       </div>
     </div>

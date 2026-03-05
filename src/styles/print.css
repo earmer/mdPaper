@@ -42,10 +42,10 @@
     page-break-inside: avoid;
   }
 
-  .markdown-body h1 + *,
-  .markdown-body h2 + *,
-  .markdown-body h3 + *,
-  .markdown-body h4 + * {
+  .markdown-body h1 + :not(hr),
+  .markdown-body h2 + :not(hr),
+  .markdown-body h3 + :not(hr),
+  .markdown-body h4 + :not(hr) {
     break-before: avoid-page;
     page-break-before: avoid;
   }

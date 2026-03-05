@@ -61,7 +61,9 @@ export const sampleManuscript: ManuscriptDraft = {
 本文系统的核心思想是将排版参数与文稿语义统一管理。对于行内公式，可直接写作 $E=mc^2$；对于块级公式，可写为：
 
 $$
-\mathcal{L}(\theta)=\frac{1}{N}\sum_{i=1}^{N}\left(y_i-f_\theta(x_i)\right)^2+\lambda\lVert\theta\rVert_2^2
+\\begin{array}{c} 
+  H_{n}=\\frac{n}{\\sum \\limits_{i=1}^{n}\\frac{1}{x_{i}}}= \\frac{n}{\\frac{1}{x_{1}}+ \\frac{1}{x_{2}}+ \\cdots + \\frac{1}{x_{n}}} \\\\ G_{n}=\\sqrt[n]{\\prod \\limits_{i=1}^{n}x_{i}}= \\sqrt[n]{x_{1}x_{2}\\cdots x_{n}} \\\\ A_{n}=\\frac{1}{n}\\sum \\limits_{i=1}^{n}x_{i}=\\frac{x_{1}+ x_{2}+ \\cdots + x_{n}}{n} \\\\ Q_{n}=\\sqrt{\\sum \\limits_{i=1}^{n}x_{i}^{2}}= \\sqrt{\\frac{x_{1}^{2}+ x_{2}^{2}+ \\cdots + x_{n}^{2}}{n}} \\\\ H_{n}\\leq G_{n}\\leq A_{n}\\leq Q_{n} 
+\\end{array}
 $$
 
 ## 2 方法
