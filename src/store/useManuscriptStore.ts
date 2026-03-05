@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia';
-import { exportRegressionFixture } from '@/data/exportFixture';
 import { sampleManuscript } from '@/data/sampleManuscript';
 import type {
   Affiliation,
@@ -160,12 +159,6 @@ export const useManuscriptStore = defineStore('manuscript', {
       applyLockedExportLayout(this.exportSetting);
       this.imageOption = data.imageOption;
       this.imageAssets = data.imageAssets;
-    },
-    loadExportFixture(): void {
-      this.metadata = normalizeMetadata(structuredClone(exportRegressionFixture.metadata));
-      this.content = exportRegressionFixture.content;
-      applyLockedExportLayout(this.exportSetting);
-      this.imageAssets = {};
     },
     addAuthor(): void {
       const firstAffiliation = this.metadata.affiliations[0]?.id;

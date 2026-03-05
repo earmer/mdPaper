@@ -15,7 +15,6 @@
 - 页眉页脚：页眉显示“期刊名 + 论文标题”，页脚显示 `Page N`。
 - 图片拖拽：拖入编辑器自动转 base64 Markdown，支持压缩（质量/最大宽）。
 - 导出方式：`canvas`（直接下载 PDF）。
-- 导出回归样例：一键填充长文 fixture，快速复现分页与导出一致性问题。
 - 自动缓存：输入会自动保存到浏览器本地缓存，刷新后自动恢复。
 - 一键清空：支持二次确认后清空当前输入与本地缓存。
 - i18n：`zh-CN` / `en-US`。
@@ -98,7 +97,7 @@ interface ManuscriptMeta {
 
 ## 导出回归对照（手动）
 
-1. 在左侧「元信息」面板点击「填充导出测试样例 / Load export fixture」。
+1. 在左侧「元信息」面板点击「恢复示例论文 / Reset to sample manuscript」。
 2. 在预览首页检查作者区：通讯作者姓名后应出现 `*`（且与单位上标共存），并显示单独一行通讯作者说明。
 3. 在预览区按页检查：重点看标题是否孤行、图表/公式是否被硬切。
 4. 选择导出并下载 PDF，逐页对比预览。
@@ -193,7 +192,6 @@ src/
     imageAsset.ts
   data/
     sampleManuscript.ts
-    exportFixture.ts
   types/
     manuscript.ts
     modules.d.ts

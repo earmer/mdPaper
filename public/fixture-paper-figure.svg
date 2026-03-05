@@ -63,7 +63,7 @@
     <tspan x="74" dy="0">- metadata, content, exportSetting, imageAssets.</tspan>
     <tspan x="74" dy="19">- remoteImageUrls parses markdown HTTP image links.</tspan>
     <tspan x="74" dy="19">- saveDraft/loadDraft with localStorage.</tspan>
-    <tspan x="74" dy="19">- resetToSample/loadExportFixture for regression data.</tspan>
+    <tspan x="74" dy="19">- resetToSample for sample manuscript recovery.</tspan>
   </text>
 
   <rect class="box" x="460" y="145" width="340" height="190" rx="12" />

@@ -20,7 +20,6 @@ const zhCN = {
     confirm: '确认',
     cancel: '取消',
     loadedSample: '已加载示例论文',
-    fixtureLoaded: '已填充导出回归测试样例',
     draftSaved: '草稿已保存到本地',
     draftLoaded: '已恢复本地草稿',
     draftCleared: '已清除本地草稿',
@@ -126,7 +125,6 @@ const zhCN = {
     imageMaxWidth: '最大宽度(px)',
     enableDraftPersistence: '启用本地草稿自动持久化',
     resetSample: '恢复示例论文',
-    loadExportFixture: '填充导出测试样例',
   },
   export: {
     dialogTitle: '导出 PDF',
