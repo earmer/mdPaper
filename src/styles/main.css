@@ -1,0 +1,16 @@
+@import 'tdesign-vue-next/es/style/index.css';
+@import 'katex/dist/katex.min.css';
+@import 'highlight.js/styles/github.css';
+
+@import './tokens.css';
+@import './theme.css';
+@import './journal.css';
+@import './print.css';
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+}

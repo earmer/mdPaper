@@ -1,0 +1,20 @@
+:root {
+  --jp-blue-050: #eef5ff;
+  --jp-blue-100: #dceaff;
+  --jp-blue-200: #b8d2ff;
+  --jp-blue-400: #4b8ff8;
+  --jp-blue-500: #2f6fe4;
+  --jp-blue-600: #255dbe;
+  --jp-text-900: #0f172a;
+  --jp-text-700: #334155;
+  --jp-text-500: #64748b;
+  --jp-border: #dbe7f7;
+  --jp-panel-bg: #ffffff;
+  --jp-app-bg: #f3f8ff;
+  --jp-shadow-soft: 0 14px 40px rgba(15, 23, 42, 0.09);
+  --jp-shadow-paper: 0 16px 28px rgba(15, 23, 42, 0.18);
+
+  --font-cjk: 'SimSun Embedded', 'Songti SC', 'STSong', serif;
+  --font-times: 'Times New Roman Embedded', 'Times New Roman', 'STIX Two Text', serif;
+  --font-math: 'Journal Math', 'KaTeX_Main', 'STIX Two Math', serif;
+}

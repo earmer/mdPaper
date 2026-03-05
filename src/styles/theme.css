@@ -1,0 +1,46 @@
+body {
+  margin: 0;
+  color: var(--jp-text-900);
+  background: var(--jp-app-bg);
+  font-family: var(--font-times), var(--font-cjk);
+}
+
+body.theme-light {
+  --app-panel-bg: rgba(255, 255, 255, 0.88);
+  --app-panel-border: rgba(183, 204, 233, 0.75);
+  --app-panel-shadow: 0 12px 30px rgba(61, 90, 156, 0.13);
+  --app-muted: #6a7c93;
+}
+
+body.theme-dark {
+  --jp-text-900: #deebff;
+  --jp-text-700: #b4c7e6;
+  --jp-text-500: #92a6c8;
+  --jp-border: #2f3e5a;
+  --jp-app-bg: #101725;
+  --app-panel-bg: rgba(14, 24, 43, 0.82);
+  --app-panel-border: rgba(53, 76, 112, 0.7);
+  --app-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.5);
+  --app-muted: #9db0cd;
+}
+
+body.theme-dark .t-input,
+body.theme-dark .t-textarea,
+body.theme-dark .t-select,
+body.theme-dark .t-card,
+body.theme-dark .t-tabs__nav,
+body.theme-dark .t-dialog {
+  background-color: rgba(16, 27, 49, 0.85);
+  border-color: rgba(65, 92, 138, 0.8);
+  color: #d7e6ff;
+}
+
+body.theme-dark .t-dialog__header,
+body.theme-dark .t-card__header {
+  color: #d7e6ff;
+}
+
+body.theme-dark .t-form__label,
+body.theme-dark .t-typography {
+  color: #c7d7f2;
+}

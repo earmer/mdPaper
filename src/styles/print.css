@@ -1,0 +1,75 @@
+@page {
+  size: var(--paper-size, A4);
+  margin: var(--paper-margin-top, 18mm) var(--paper-margin-right, 18mm)
+    var(--paper-margin-bottom, 20mm) var(--paper-margin-left, 18mm);
+
+  @top-left {
+    content: 'R.U.B.B.I.S.H. Journal';
+    color: #475569;
+    font-size: 9pt;
+    font-family: var(--font-times), var(--font-cjk);
+  }
+
+  @top-right {
+    content: 'rubbishjournal.org';
+    color: #475569;
+    font-size: 9pt;
+    font-family: var(--font-times), var(--font-cjk);
+  }
+
+  @bottom-center {
+    content: counter(page) ' / ' counter(pages);
+    color: #475569;
+    font-size: 9pt;
+    font-family: var(--font-times), var(--font-cjk);
+  }
+}
+
+@media print {
+  .markdown-body p,
+  .markdown-body li,
+  .markdown-body blockquote p {
+    orphans: 2;
+    widows: 2;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  body.print-preview #journal-print-root,
+  body.print-preview #journal-print-root * {
+    visibility: visible;
+  }
+
+  body.print-preview .preview-page-window {
+    overflow: visible !important;
+  }
+
+  body.print-preview .preview-page-track {
+    transform: none !important;
+  }
+
+  body.print-preview #journal-print-root {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    min-height: auto;
+    box-shadow: none;
+  }
+
+  body.print-preview #journal-print-root .journal-page-header-static {
+    display: none !important;
+  }
+
+  body.print-preview .journal-article {
+    min-height: auto;
+  }
+}
