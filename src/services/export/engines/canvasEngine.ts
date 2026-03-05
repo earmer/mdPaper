@@ -172,8 +172,7 @@ export const exportByCanvas = async (
               orientation: 'portrait',
             },
             pagebreak: {
-              mode: ['css', 'legacy'],
-              before: ['.markdown-body hr'],
+              mode: ['css'],
               avoid: [
                 '.markdown-body h1',
                 '.markdown-body h2',

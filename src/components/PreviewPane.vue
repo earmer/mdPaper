@@ -217,27 +217,6 @@ interface ParagraphRange {
   minSplitHeight: number;
 }
 
-const collectForcedPageBreakOffsets = (
-  root: HTMLElement,
-  rootRect: DOMRect,
-): number[] => {
-  const offsets: number[] = [];
-  const separators = Array.from(root.querySelectorAll<HTMLElement>('.markdown-body hr'));
-
-  separators.forEach((separator) => {
-    const rect = separator.getBoundingClientRect();
-    const top = rect.top - rootRect.top;
-    if (!Number.isFinite(top) || top <= 0.5) {
-      return;
-    }
-
-    offsets.push(top);
-  });
-
-  offsets.sort((a, b) => a - b);
-  return offsets;
-};
-
 const resolveElementLineHeight = (element: HTMLElement): number => {
   const computedStyle = window.getComputedStyle(element);
   const parsedLineHeight = Number.parseFloat(computedStyle.lineHeight);
@@ -390,7 +369,6 @@ const buildSmartPageOffsets = (
   ranges: BlockRange[],
   headingBindings: HeadingBindingRange[],
   paragraphRanges: ParagraphRange[],
-  forcedPageBreakOffsets: number[],
 ): number[] => {
   const offsets: number[] = [0];
   const effectivePageAdvance = Math.max(pageHeight * 0.4, pageAdvance);
@@ -398,35 +376,12 @@ const buildSmartPageOffsets = (
   const headingBindingWindow = effectivePageAdvance * 0.35;
   const maxCrossBlockHeight = effectivePageAdvance * 0.95;
   const maxStrictBlockHeight = effectivePageAdvance - 2;
-  const forcedBreakEpsilon = 0.5;
-  let forcedBreakCursor = 0;
   let guard = 0;
 
   while (true) {
     const previous = offsets[offsets.length - 1] ?? 0;
     if (previous + effectivePageAdvance >= totalHeight - 2) {
       break;
-    }
-
-    while (forcedBreakCursor < forcedPageBreakOffsets.length) {
-      const currentBreak = forcedPageBreakOffsets[forcedBreakCursor];
-      if (currentBreak === undefined || currentBreak > previous + forcedBreakEpsilon) {
-        break;
-      }
-      forcedBreakCursor += 1;
-    }
-
-    const inRangeForcedBreak = forcedPageBreakOffsets[forcedBreakCursor];
-    if (
-      inRangeForcedBreak !== undefined
-      && inRangeForcedBreak <= previous + effectivePageAdvance + forcedBreakEpsilon
-    ) {
-      offsets.push(inRangeForcedBreak);
-      guard += 1;
-      if (guard > 2048) {
-        break;
-      }
-      continue;
     }
 
     let next = previous + effectivePageAdvance;
@@ -491,15 +446,6 @@ const buildSmartPageOffsets = (
       next = previous + effectivePageAdvance;
     }
 
-    const forcedBeforeNext = forcedPageBreakOffsets[forcedBreakCursor];
-    if (
-      forcedBeforeNext !== undefined
-      && forcedBeforeNext > previous + forcedBreakEpsilon
-      && forcedBeforeNext < next - forcedBreakEpsilon
-    ) {
-      next = forcedBeforeNext;
-    }
-
     offsets.push(next);
     guard += 1;
     if (guard > 2048) {
@@ -549,16 +495,6 @@ const recalculatePagination = (): void => {
       bottom: toOffsetCoordinate(paragraph.bottom),
     }))
     .filter((paragraph) => paragraph.bottom > paragraph.top + 0.5);
-  const forcedPageBreakOffsets = collectForcedPageBreakOffsets(root, rect)
-    .map((offset) => toOffsetCoordinate(offset))
-    .filter((offset, index, list) => {
-      if (offset <= 0.5) {
-        return false;
-      }
-
-      const previous = list[index - 1];
-      return previous === undefined || Math.abs(offset - previous) > 0.5;
-    });
   const totalOffsetHeight = Math.max(pageAdvance, toOffsetCoordinate(totalContentHeight));
   pageOffsets.value = buildSmartPageOffsets(
     physicalPageHeight,
@@ -567,7 +503,6 @@ const recalculatePagination = (): void => {
     avoidRanges,
     headingBindings,
     paragraphRanges,
-    forcedPageBreakOffsets,
   );
   const totalPages = Math.max(1, pageOffsets.value.length);
   pageCount.value = totalPages;

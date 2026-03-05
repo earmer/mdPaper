@@ -71,12 +71,6 @@ const toolbarActions = computed<ToolbarAction[]>(() => [
     snippet: '\n> quote\n',
   },
   {
-    key: 'pageBreak',
-    label: t('form.insertPageBreak'),
-    icon: 'mdi:page-next-outline',
-    snippet: '\n\n----\n\n',
-  },
-  {
     key: 'image',
     label: t('form.insertImage'),
     icon: 'mdi:image-outline',

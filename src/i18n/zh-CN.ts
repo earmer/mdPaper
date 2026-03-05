@@ -88,7 +88,6 @@ const zhCN = {
     insertFormulaInline: '插入行内公式',
     insertFormulaBlock: '插入块级公式',
     insertQuote: '插入引用',
-    insertPageBreak: '插入换页符',
     insertImage: '插入图片语法',
     dropHint: '支持拖拽图片到编辑区，自动保存为资源并插入短引用。',
     imageCompression: '图片压缩',

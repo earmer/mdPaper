@@ -87,7 +87,6 @@ const enUS = {
     insertFormulaInline: 'Inline Formula',
     insertFormulaBlock: 'Block Formula',
     insertQuote: 'Insert Quote',
-    insertPageBreak: 'Insert Page Break',
     insertImage: 'Insert Image',
     dropHint: 'Drag image files into the editor; they are stored as local assets and inserted as short references.',
     imageCompression: 'Image Compression',

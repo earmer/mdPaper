@@ -82,36 +82,6 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
 
 const escapeHtml = (text: string): string => markdown.utils.escapeHtml(text);
 
-const normalizePageBreakMarkers = (source: string): string => {
-  const lines = source.split('\n');
-  const normalized: string[] = [];
-  let activeFence: string | null = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const fenceStart = trimmed.match(/^(`{3,}|~{3,})/u);
-    if (fenceStart !== null) {
-      const marker = fenceStart[1] ?? '';
-      if (activeFence === null) {
-        activeFence = marker[0] ?? null;
-      } else if ((marker[0] ?? '') === activeFence) {
-        activeFence = null;
-      }
-      normalized.push(line);
-      continue;
-    }
-
-    if (activeFence === null && /^-{4,}$/u.test(trimmed)) {
-      normalized.push('', '---', '');
-      continue;
-    }
-
-    normalized.push(line);
-  }
-
-  return normalized.join('\n');
-};
-
 const stripHeadingOrdinal = (
   input: string,
   expectedDepth: 1 | 2 | 3,
@@ -364,8 +334,7 @@ export interface RenderMarkdownOptions {
 }
 
 export const renderMarkdown = (source: string, options: RenderMarkdownOptions = {}): string => {
-  const normalizedPageBreakSource = normalizePageBreakMarkers(source);
-  const normalizedSource = normalizeMathInMarkdown(normalizedPageBreakSource);
+  const normalizedSource = normalizeMathInMarkdown(source);
   const rendered = markdown.render(normalizedSource, {
     resolveImageSrc: options.resolveImageSrc,
   } satisfies MarkdownRenderEnv);
