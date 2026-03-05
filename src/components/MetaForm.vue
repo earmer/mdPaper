@@ -36,7 +36,7 @@ const fillExportFixture = (): void => {
 <template>
   <div class="panel-scroll meta-form">
     <TForm :data="store.metadata" label-align="top" colon>
-      <TFormItem :label="t('form.title')">
+      <TFormItem class="guide-meta-title-item" :label="t('form.title')">
         <TInput v-model="store.metadata.title" :placeholder="t('form.titlePlaceholder')" clearable />
       </TFormItem>
 
@@ -116,7 +116,7 @@ const fillExportFixture = (): void => {
         </TSpace>
       </TFormItem>
 
-      <TFormItem :label="t('form.authors')">
+      <TFormItem class="guide-meta-authors-item" :label="t('form.authors')">
         <TSpace direction="vertical" style="width: 100%" size="12px">
           <TCard
             v-for="(author, index) in store.metadata.authors"
@@ -167,7 +167,7 @@ const fillExportFixture = (): void => {
             </TSpace>
           </TCard>
 
-          <TButton variant="dashed" @click="store.addAuthor">
+          <TButton class="guide-meta-add-author-btn" variant="dashed" @click="store.addAuthor">
             <template #icon>
               <Icon icon="mdi:plus" />
             </template>
@@ -176,7 +176,7 @@ const fillExportFixture = (): void => {
         </TSpace>
       </TFormItem>
 
-      <TFormItem :label="t('form.correspondingAuthor')">
+      <TFormItem class="guide-meta-corresponding-item" :label="t('form.correspondingAuthor')">
         <TSpace direction="vertical" style="width: 100%" size="10px">
           <TSelect
             v-model="store.metadata.correspondingAuthorId"

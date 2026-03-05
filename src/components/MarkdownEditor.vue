@@ -432,7 +432,7 @@ const onDragLeave = (event: DragEvent): void => {
       <TFormItem class="markdown-editor__content-item">
         <div class="markdown-editor__content-head">
           <span class="markdown-editor__content-title">{{ t('form.contentEditor') }}</span>
-          <TButton size="small" variant="outline" @click="openFullscreenEditor">
+          <TButton class="guide-content-fullscreen-btn" size="small" variant="outline" @click="openFullscreenEditor">
             <template #icon>
               <Icon icon="mdi:fullscreen" />
             </template>

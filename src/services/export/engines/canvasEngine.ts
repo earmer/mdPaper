@@ -27,20 +27,63 @@ interface Html2PdfFactory {
   (): Html2PdfWorker;
 }
 
+const getPageRenderOps = (pdf: any, page: number): string => {
+  const pages = (pdf.internal as { pages?: Record<number, unknown> }).pages;
+  return Array.isArray(pages?.[page]) ? pages[page].join('\n') : '';
+};
+
+const hasPageRenderOps = (pdf: any, page: number): boolean =>
+  /Do\b|BT\b|TJ\b|Tj\b/.test(getPageRenderOps(pdf, page));
+
 const removeLeadingBlankPage = (pdf: any): void => {
   const pageCount = pdf.internal.getNumberOfPages();
   if (pageCount <= 1) {
     return;
   }
 
-  const pages = (pdf.internal as { pages?: Record<number, unknown> }).pages;
-  const firstPageOps = Array.isArray(pages?.[1]) ? pages[1].join('\n') : '';
-  const secondPageOps = Array.isArray(pages?.[2]) ? pages[2].join('\n') : '';
-  const firstHasRenderOps = /Do\b|BT\b|TJ\b|Tj\b/.test(firstPageOps);
-  const secondHasRenderOps = /Do\b|BT\b|TJ\b|Tj\b/.test(secondPageOps);
+  const firstHasRenderOps = hasPageRenderOps(pdf, 1);
+  const secondHasRenderOps = hasPageRenderOps(pdf, 2);
 
   if (!firstHasRenderOps && secondHasRenderOps && typeof pdf.deletePage === 'function') {
     pdf.deletePage(1);
+  }
+};
+
+const removeTrailingBlankPages = (pdf: any): void => {
+  if (typeof pdf.deletePage !== 'function') {
+    return;
+  }
+
+  let pageCount = pdf.internal.getNumberOfPages();
+  while (pageCount > 1) {
+    const lastHasRenderOps = hasPageRenderOps(pdf, pageCount);
+    if (lastHasRenderOps) {
+      break;
+    }
+
+    const hasRenderableBeforeLast = Array.from(
+      { length: pageCount - 1 },
+      (_, index) => hasPageRenderOps(pdf, index + 1),
+    ).some(Boolean);
+    if (!hasRenderableBeforeLast) {
+      break;
+    }
+
+    pdf.deletePage(pageCount);
+    pageCount -= 1;
+  }
+};
+
+const trimPagesToExpectedCount = (pdf: any, expectedPageCount: number): void => {
+  if (typeof pdf.deletePage !== 'function') {
+    return;
+  }
+
+  const safeExpectedPageCount = Math.max(1, Math.floor(expectedPageCount));
+  let pageCount = pdf.internal.getNumberOfPages();
+  while (pageCount > safeExpectedPageCount) {
+    pdf.deletePage(pageCount);
+    pageCount -= 1;
   }
 };
 
@@ -134,12 +177,13 @@ export const exportByCanvas = async (
 
       applyLayoutVars(isolatedPayload);
       await waitForExportRenderReady(isolatedArticle);
-      applySharedPaginationBreaks({
+      const pagination = applySharedPaginationBreaks({
         root: isolatedArticle,
         paperSize: isolatedPayload.exportSetting.paperSize,
         marginsTopMm: isolatedPayload.exportSetting.margins.top,
         marginsBottomMm: isolatedPayload.exportSetting.margins.bottom,
       });
+      const expectedPageCount = Math.max(1, pagination.pageOffsets.length);
 
       await withBodyClass('canvas-exporting', async () => {
         const worker = html2pdf()
@@ -172,6 +216,8 @@ export const exportByCanvas = async (
 
         const pdf = await worker.get('pdf');
         removeLeadingBlankPage(pdf);
+        removeTrailingBlankPages(pdf);
+        trimPagesToExpectedCount(pdf, expectedPageCount);
         drawHeaderFooter(pdf, isolatedPayload);
         await worker.save();
       });

@@ -12,6 +12,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   openExport: [];
   openMobileEditor: [];
+  openGuide: [];
 }>();
 
 const { t, locale } = useI18n();
@@ -109,7 +110,16 @@ const clearAllInputs = (): void => {
         </TButton>
       </TTooltip>
 
-      <TButton theme="primary" size="small" @click="emit('openExport')">
+      <TTooltip :content="t('guide.reopenTooltip')">
+        <TButton variant="outline" size="small" @click="emit('openGuide')">
+          <template #icon>
+            <Icon icon="mdi:lightbulb-on-outline" />
+          </template>
+          {{ t('guide.button') }}
+        </TButton>
+      </TTooltip>
+
+      <TButton id="guide-export-button" theme="primary" size="small" @click="emit('openExport')">
         <template #icon>
           <Icon icon="mdi:file-export-outline" />
         </template>
