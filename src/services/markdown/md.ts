@@ -54,7 +54,7 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const caption = safeTitle.length > 0 ? safeTitle : safeAlt;
   const captionHtml = caption.length > 0 ? `<figcaption>${caption}</figcaption>` : '';
 
-  return `<figure class="md-figure"><img src="${safeSrc}" alt="${safeAlt}" loading="lazy" />${captionHtml}</figure>`;
+  return `<figure class="md-figure"><img src="${safeSrc}" alt="${safeAlt}" loading="eager" decoding="async" />${captionHtml}</figure>`;
 };
 
 const hasCjk = (text: string): boolean => /[\u3400-\u9fff]/u.test(text);

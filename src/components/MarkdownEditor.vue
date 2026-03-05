@@ -4,7 +4,7 @@ import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
 import { compressImage } from '@/services/image/compressImage';
-import { fileToDataUrl } from '@/services/image/imageToBase64';
+import { fileToDataUrl, urlToDataUrl } from '@/services/image/imageToBase64';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { defaultImageAlt, toInlineImageMarkdown } from '@/utils/format';
 
@@ -13,6 +13,7 @@ const store = useManuscriptStore();
 const wrapperRef = ref<HTMLElement | null>(null);
 const dragging = ref(false);
 const processing = ref(false);
+const dragDepth = ref(0);
 
 interface ToolbarAction {
   key: string;
@@ -119,8 +120,16 @@ const buildImageMarkdown = async (file: File): Promise<string> => {
   return `${toInlineImageMarkdown(alt, dataUrl)}\n`;
 };
 
+const isLikelyImageFile = (file: File): boolean => {
+  if (file.type.startsWith('image/')) {
+    return true;
+  }
+
+  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)$/i.test(file.name);
+};
+
 const processFiles = async (files: File[]): Promise<void> => {
-  const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+  const imageFiles = files.filter((file) => isLikelyImageFile(file));
 
   if (imageFiles.length === 0) {
     MessagePlugin.error(t('errors.invalidImage'));
@@ -142,26 +151,165 @@ const processFiles = async (files: File[]): Promise<void> => {
   processing.value = false;
 };
 
-const onDrop = async (event: DragEvent): Promise<void> => {
-  event.preventDefault();
-  dragging.value = false;
+const extractDroppedFiles = (event: DragEvent): File[] => {
+  const transfer = event.dataTransfer;
+  if (transfer === null) {
+    return [];
+  }
 
-  const dropped = event.dataTransfer?.files;
-  if (dropped === undefined || dropped.length === 0) {
+  const files = Array.from(transfer.files);
+  if (files.length > 0) {
+    return files;
+  }
+
+  if (transfer.items === undefined) {
+    return [];
+  }
+
+  const itemFiles = Array.from(transfer.items)
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+
+  return itemFiles;
+};
+
+const parseUriList = (raw: string): string[] =>
+  raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+
+const extractImageUrl = (event: DragEvent): string | null => {
+  const transfer = event.dataTransfer;
+  if (transfer === null) {
+    return null;
+  }
+
+  const uriList = parseUriList(transfer.getData('text/uri-list'));
+  const plainText = transfer.getData('text/plain').trim();
+
+  const candidates = [...uriList];
+  if (plainText.length > 0) {
+    candidates.push(plainText);
+  }
+
+  for (const value of candidates) {
+    if (value.startsWith('data:image/')) {
+      return value;
+    }
+
+    if (/^https?:\/\/\S+$/i.test(value)) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const processImageUrl = async (url: string): Promise<boolean> => {
+  const alt = defaultImageAlt();
+
+  if (url.startsWith('data:image/')) {
+    insertAtCursor(`${toInlineImageMarkdown(alt, url)}\n`);
+    MessagePlugin.success(t('app.imageInserted', { name: 'data-url' }));
+    return true;
+  }
+
+  try {
+    const dataUrl = await urlToDataUrl(url);
+    insertAtCursor(`${toInlineImageMarkdown(alt, dataUrl)}\n`);
+    MessagePlugin.success(t('app.imageInserted', { name: url }));
+    return true;
+  } catch {
+    try {
+      const response = await fetch(url, { mode: 'no-cors' });
+      const blob = await response.blob();
+      if (blob.size <= 0) {
+        throw new Error('empty blob');
+      }
+      const dataUrl = await fileToDataUrl(blob);
+      insertAtCursor(`${toInlineImageMarkdown(alt, dataUrl)}\n`);
+      MessagePlugin.success(t('app.imageInserted', { name: url }));
+      return true;
+    } catch {
+      MessagePlugin.error(t('errors.fetchFailed', { url }));
+      return false;
+    }
+  }
+};
+
+const shouldHandleDrag = (event: DragEvent): boolean => {
+  const types = event.dataTransfer?.types;
+  if (types === undefined) {
+    return false;
+  }
+
+  return (
+    types.includes('Files') ||
+    types.includes('text/uri-list') ||
+    types.includes('text/plain')
+  );
+};
+
+const onDragEnter = (event: DragEvent): void => {
+  if (!shouldHandleDrag(event)) {
     return;
   }
 
-  await processFiles(Array.from(dropped));
+  event.preventDefault();
+  dragDepth.value += 1;
+  dragging.value = true;
+};
+
+const onDrop = async (event: DragEvent): Promise<void> => {
+  if (!shouldHandleDrag(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  dragDepth.value = 0;
+  dragging.value = false;
+
+  const droppedFiles = extractDroppedFiles(event);
+  if (droppedFiles.length > 0) {
+    await processFiles(droppedFiles);
+    return;
+  }
+
+  const imageUrl = extractImageUrl(event);
+  if (imageUrl !== null) {
+    void (await processImageUrl(imageUrl));
+    return;
+  }
+
+  MessagePlugin.error(t('errors.invalidImage'));
 };
 
 const onDragOver = (event: DragEvent): void => {
+  if (!shouldHandleDrag(event)) {
+    return;
+  }
+
   event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer !== null) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
   dragging.value = true;
 };
 
 const onDragLeave = (event: DragEvent): void => {
+  if (!shouldHandleDrag(event)) {
+    return;
+  }
+
   event.preventDefault();
-  dragging.value = false;
+  event.stopPropagation();
+  dragDepth.value = Math.max(0, dragDepth.value - 1);
+  if (dragDepth.value === 0) {
+    dragging.value = false;
+  }
 };
 </script>
 
@@ -170,9 +318,10 @@ const onDragLeave = (event: DragEvent): void => {
     ref="wrapperRef"
     class="panel-scroll markdown-editor"
     :class="{ 'is-dragging': dragging }"
-    @drop="onDrop"
-    @dragover="onDragOver"
-    @dragleave="onDragLeave"
+    @dragenter.capture.prevent="onDragEnter"
+    @drop.capture.prevent="onDrop"
+    @dragover.capture.prevent="onDragOver"
+    @dragleave.capture.prevent="onDragLeave"
   >
     <TAlert theme="info" :message="t('form.dropHint')" close />
 

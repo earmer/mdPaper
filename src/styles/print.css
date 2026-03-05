@@ -57,6 +57,11 @@
     page-break-inside: avoid;
   }
 
+  .markdown-body .katex-display,
+  .markdown-body .katex-display-block {
+    overflow: visible !important;
+  }
+
   .markdown-body p,
   .markdown-body li,
   .markdown-body blockquote p {

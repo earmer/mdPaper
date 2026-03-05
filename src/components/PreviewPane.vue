@@ -42,6 +42,7 @@ const printRootRef = ref<HTMLElement | null>(null);
 const currentPage = ref(1);
 const pageCount = ref(1);
 const pageHeightPx = ref(0);
+const pageOffsets = ref<number[]>([0]);
 const formulaAutoLockedNotified = ref(false);
 
 let resizeObserver: ResizeObserver | null = null;
@@ -59,7 +60,7 @@ const previewWindowStyle = computed(() => ({
 }));
 
 const pageTrackStyle = computed(() => {
-  const offset = Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
+  const offset = pageOffsets.value[currentPage.value - 1] ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
   return {
     transform: `translate3d(0, -${offset}px, 0)`,
   };
@@ -82,6 +83,155 @@ const articleStyle = computed(() => ({
   '--paper-margin-left': `${store.exportSetting.margins.left}mm`,
   '--paper-size': store.exportSetting.paperSize,
 }));
+
+const waitForPreviewAssets = async (): Promise<void> => {
+  const root = printRootRef.value;
+  if (root === null) {
+    return;
+  }
+
+  const fontSet = (document as Document & { fonts?: FontFaceSet }).fonts;
+  if (fontSet !== undefined) {
+    try {
+      await fontSet.ready;
+    } catch {
+      // ignore font readiness failures for preview
+    }
+  }
+
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+  await Promise.allSettled(
+    images.map(async (img) => {
+      if (typeof img.decode === 'function') {
+        try {
+          await img.decode();
+          return;
+        } catch {
+          // fallback to load/error listeners
+        }
+      }
+
+      if (img.complete) {
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          img.removeEventListener('load', done);
+          img.removeEventListener('error', done);
+          resolve();
+        };
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      });
+    }),
+  );
+};
+
+const measureTotalContentHeight = (root: HTMLElement, rootRect: DOMRect): number => {
+  const article = root.querySelector<HTMLElement>('.journal-article');
+  const heights = [
+    root.scrollHeight,
+    root.offsetHeight,
+    rootRect.height,
+  ];
+
+  if (article !== null) {
+    heights.push(article.scrollHeight, article.offsetHeight, article.getBoundingClientRect().height);
+
+    const articleRect = article.getBoundingClientRect();
+    let maxBottom = articleRect.bottom - rootRect.top;
+    const tails = article.querySelectorAll<HTMLElement>(
+      ':scope > *, .markdown-body > *',
+    );
+
+    tails.forEach((element) => {
+      const elementRect = element.getBoundingClientRect();
+      if (elementRect.height <= 0) {
+        return;
+      }
+
+      maxBottom = Math.max(maxBottom, elementRect.bottom - rootRect.top);
+    });
+
+    heights.push(maxBottom);
+  }
+
+  return Math.max(...heights) + 2;
+};
+
+interface BlockRange {
+  top: number;
+  bottom: number;
+  height: number;
+}
+
+const collectAvoidBlockRanges = (root: HTMLElement, rootRect: DOMRect): BlockRange[] => {
+  const selectors = [
+    '.markdown-body h2',
+    '.markdown-body h3',
+    '.markdown-body .md-figure',
+    '.markdown-body table',
+    '.markdown-body pre',
+    '.markdown-body .katex-display-block',
+    '.markdown-body blockquote',
+  ].join(', ');
+
+  const nodes = Array.from(root.querySelectorAll<HTMLElement>(selectors));
+  return nodes
+    .map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        top: rect.top - rootRect.top,
+        bottom: rect.bottom - rootRect.top,
+        height: rect.height,
+      };
+    })
+    .filter((item) => item.height > 0);
+};
+
+const buildSmartPageOffsets = (
+  pageHeight: number,
+  totalHeight: number,
+  ranges: BlockRange[],
+): number[] => {
+  const offsets: number[] = [0];
+  const minPageHeight = pageHeight * 0.38;
+  const maxCrossBlockHeight = pageHeight * 0.95;
+  let guard = 0;
+
+  while (true) {
+    const previous = offsets[offsets.length - 1] ?? 0;
+    if (previous + pageHeight >= totalHeight - 2) {
+      break;
+    }
+
+    let next = previous + pageHeight;
+    const crossing = ranges.find(
+      (range) =>
+        range.top < next &&
+        range.bottom > next &&
+        range.height <= maxCrossBlockHeight &&
+        range.top - previous >= minPageHeight,
+    );
+
+    if (crossing !== undefined) {
+      next = Math.max(previous + minPageHeight, crossing.top);
+    }
+
+    if (next <= previous + 1) {
+      next = previous + pageHeight;
+    }
+
+    offsets.push(next);
+    guard += 1;
+    if (guard > 2048) {
+      break;
+    }
+  }
+
+  return offsets;
+};
 
 const fitFormulaBlocks = (root: HTMLElement): void => {
   const markdownBody = root.querySelector<HTMLElement>('.markdown-body');
@@ -165,8 +315,14 @@ const recalculatePagination = (): void => {
   const physicalPageHeight = rect.width * paperRatio;
   pageHeightPx.value = physicalPageHeight;
 
-  const totalContentHeight = Math.max(root.scrollHeight, physicalPageHeight);
-  const totalPages = Math.max(1, Math.ceil(totalContentHeight / physicalPageHeight));
+  const totalContentHeight = Math.max(measureTotalContentHeight(root, rect), physicalPageHeight);
+  const avoidRanges = collectAvoidBlockRanges(root, rect);
+  pageOffsets.value = buildSmartPageOffsets(
+    physicalPageHeight,
+    totalContentHeight,
+    avoidRanges,
+  );
+  const totalPages = Math.max(1, pageOffsets.value.length);
   pageCount.value = totalPages;
   currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
 };
@@ -194,6 +350,7 @@ watch(
   () => [store.metadata, store.content, store.exportSetting],
   async () => {
     await nextTick();
+    await waitForPreviewAssets();
     scheduleRecalculate();
   },
   { deep: true },
@@ -222,6 +379,7 @@ onMounted(async () => {
 
   window.addEventListener('resize', scheduleRecalculate);
   await nextTick();
+  await waitForPreviewAssets();
   scheduleRecalculate();
 });
 

@@ -26,6 +26,23 @@ interface Html2PdfFactory {
   (): Html2PdfWorker;
 }
 
+const removeLeadingBlankPage = (pdf: any): void => {
+  const pageCount = pdf.internal.getNumberOfPages();
+  if (pageCount <= 1) {
+    return;
+  }
+
+  const pages = (pdf.internal as { pages?: Record<number, unknown> }).pages;
+  const firstPageOps = Array.isArray(pages?.[1]) ? pages[1].join('\n') : '';
+  const secondPageOps = Array.isArray(pages?.[2]) ? pages[2].join('\n') : '';
+  const firstHasRenderOps = /Do\b|BT\b|TJ\b|Tj\b/.test(firstPageOps);
+  const secondHasRenderOps = /Do\b|BT\b|TJ\b|Tj\b/.test(secondPageOps);
+
+  if (!firstHasRenderOps && secondHasRenderOps && typeof pdf.deletePage === 'function') {
+    pdf.deletePage(1);
+  }
+};
+
 const drawHeaderFooter = (pdf: any, payload: ExportPayload): void => {
   const { exportSetting, locale } = payload;
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -108,6 +125,16 @@ export const exportByCanvas = async (
     payload.articleElement,
     payload.exportSetting.paperSize,
     async (isolatedArticle) => {
+      const contentRoot =
+        isolatedArticle.querySelector<HTMLElement>('.journal-article') ?? isolatedArticle;
+      isolatedArticle.style.minHeight = 'auto';
+      contentRoot.style.minHeight = 'auto';
+      contentRoot.style.paddingTop = '0';
+      contentRoot.style.paddingRight = '0';
+      contentRoot.style.paddingBottom = '0';
+      contentRoot.style.paddingLeft = '0';
+      contentRoot.style.margin = '0';
+
       const isolatedPayload: ExportPayload = {
         ...payload,
         articleElement: isolatedArticle,
@@ -135,6 +162,8 @@ export const exportByCanvas = async (
               useCORS: true,
               allowTaint: false,
               backgroundColor: '#ffffff',
+              scrollX: 0,
+              scrollY: 0,
             },
             jsPDF: {
               unit: 'mm',
@@ -142,23 +171,23 @@ export const exportByCanvas = async (
               orientation: 'portrait',
             },
             pagebreak: {
-              mode: ['css', 'legacy'],
+              mode: ['css'],
               avoid: [
-                'h1',
-                'h2',
-                'h3',
+                '.markdown-body h2',
+                '.markdown-body h3',
                 '.md-figure',
                 '.katex-display-block',
-                'pre',
-                'table',
-                'blockquote',
+                '.markdown-body pre',
+                '.markdown-body table',
+                '.markdown-body blockquote',
               ],
             },
           })
-          .from(isolatedArticle)
+          .from(contentRoot)
           .toPdf();
 
         const pdf = await worker.get('pdf');
+        removeLeadingBlankPage(pdf);
         drawHeaderFooter(pdf, isolatedPayload);
         await worker.save();
       });
