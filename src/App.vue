@@ -22,6 +22,8 @@ const activeTab = ref('meta');
 const drawerVisible = ref(false);
 const exportDialogVisible = ref(false);
 const guideCurrent = ref(-1);
+const mobileRecommendDialogVisible = ref(false);
+const hasShownMobileRecommendDialog = ref(false);
 const { width } = useWindowSize();
 
 const isMobile = computed(() => width.value < 1100);
@@ -167,16 +169,26 @@ watch(
   { immediate: true },
 );
 
-watch(isMobile, (value) => {
-  if (!value) {
-    drawerVisible.value = false;
-    return;
-  }
+watch(
+  isMobile,
+  (value) => {
+    if (!value) {
+      drawerVisible.value = false;
+      mobileRecommendDialogVisible.value = false;
+      return;
+    }
 
-  if (guideCurrent.value >= 0 && guideCurrent.value <= GUIDE_CONTENT_LAST_STEP) {
-    drawerVisible.value = true;
-  }
-});
+    if (!hasShownMobileRecommendDialog.value) {
+      mobileRecommendDialogVisible.value = true;
+      hasShownMobileRecommendDialog.value = true;
+    }
+
+    if (guideCurrent.value >= 0 && guideCurrent.value <= GUIDE_CONTENT_LAST_STEP) {
+      drawerVisible.value = true;
+    }
+  },
+  { immediate: true },
+);
 
 watch(guideCurrent, (value) => {
   if (value < 0) {
@@ -338,6 +350,17 @@ const saveDraftOnUnload = (): void => {
         </TTabPanel>
       </TTabs>
     </TDrawer>
+
+    <TDialog
+      v-model:visible="mobileRecommendDialogVisible"
+      :header="t('app.mobileRecommendTitle')"
+      :confirm-btn="t('app.mobileRecommendConfirm')"
+      :cancel-btn="null"
+      :close-on-overlay-click="false"
+      :close-on-esc-keydown="false"
+    >
+      <p>{{ t('app.mobileRecommendContent') }}</p>
+    </TDialog>
 
     <TGuide
       v-model:current="guideCurrent"

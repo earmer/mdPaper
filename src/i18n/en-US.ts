@@ -30,6 +30,10 @@ const enUS = {
     processing: 'Processing...',
     mobileEdit: 'Edit',
     mobilePreview: 'Preview',
+    mobileRecommendTitle: 'Desktop Access Recommended',
+    mobileRecommendContent:
+      'You are currently on a mobile device. For better layout preview and PDF export quality, we recommend using mdPaper on desktop.',
+    mobileRecommendConfirm: 'Continue on Mobile',
     footerJournalName: 'R.U.B.B.I.S.H. Journal',
     footerJournalSuffix: ' — an experimental publication.',
     footerCopyPrefix: '© 2026',
@@ -60,7 +64,7 @@ const enUS = {
       fullscreenTitle: 'Open Fullscreen Editor',
       fullscreenBody: 'Use Fullscreen to enlarge the editor and work with live preview side by side.',
       exportTitle: 'Export PDF',
-      exportBody: 'Click here when ready to export your PDF. You can fine-tune paper size and margins in export settings.',
+      exportBody: 'Click here when ready to export your PDF.',
     },
   },
   form: {

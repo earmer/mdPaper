@@ -30,6 +30,10 @@ const zhCN = {
     processing: '处理中...',
     mobileEdit: '编辑',
     mobilePreview: '预览',
+    mobileRecommendTitle: '建议使用桌面端访问',
+    mobileRecommendContent:
+      '当前检测到你正在使用移动端。为了获得更好的排版预览与导出体验，建议在桌面端打开 mdPaper。',
+    mobileRecommendConfirm: '继续使用移动端',
     footerJournalName: 'R.U.B.B.I.S.H. Journal',
     footerJournalSuffix: ' — an experimental publication.',
     footerCopyPrefix: '© 2026',
@@ -60,7 +64,7 @@ const zhCN = {
       fullscreenTitle: '放大编辑正文',
       fullscreenBody: '点击“全屏编辑”可放大正文编辑区，边写边看实时预览更方便。',
       exportTitle: '导出 PDF',
-      exportBody: '确认内容后点击这里导出 PDF。你也可以在“导出设置”中调整纸张和页边距。',
+      exportBody: '确认内容后点击这里导出 PDF。',
     },
   },
   form: {
