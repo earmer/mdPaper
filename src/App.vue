@@ -17,6 +17,7 @@ const { t, locale } = useI18n();
 const GUIDE_SEEN_STORAGE_KEY = 'mdpaper-guide-seen-v1';
 const GUIDE_META_LAST_STEP = 2;
 const GUIDE_CONTENT_LAST_STEP = 4;
+const MOBILE_RECOMMEND_DIALOG_Z_INDEX = 1000001;
 
 const activeTab = ref('meta');
 const drawerVisible = ref(false);
@@ -232,6 +233,10 @@ const openMobileEditor = (): void => {
   drawerVisible.value = true;
 };
 
+const handleMobileRecommendConfirm = (): void => {
+  mobileRecommendDialogVisible.value = false;
+};
+
 const openGuide = (): void => {
   guideCurrent.value = 0;
 };
@@ -356,8 +361,10 @@ const saveDraftOnUnload = (): void => {
       :header="t('app.mobileRecommendTitle')"
       :confirm-btn="t('app.mobileRecommendConfirm')"
       :cancel-btn="null"
+      :z-index="MOBILE_RECOMMEND_DIALOG_Z_INDEX"
       :close-on-overlay-click="false"
       :close-on-esc-keydown="false"
+      :on-confirm="handleMobileRecommendConfirm"
     >
       <p>{{ t('app.mobileRecommendContent') }}</p>
     </TDialog>
