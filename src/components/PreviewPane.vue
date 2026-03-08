@@ -21,6 +21,9 @@ const { t } = useI18n();
 const store = useManuscriptStore();
 
 const EMPTY_PREVIEW_PAGE_HTML = '';
+const ASSET_SETTLE_RECALCULATE_DELAY_MS = 80;
+const PREVIEW_RENDERING_DELAY_MS = 120;
+const PREVIEW_PAGED_STYLE_ID = 'preview-pagedjs-styles';
 
 const renderedBodyHtml = computed(() =>
   renderMarkdown(store.content, {
@@ -71,15 +74,19 @@ const keywordLine = computed(() =>
 
 const measureRootRef = ref<HTMLElement | null>(null);
 const previewPageHtmlList = ref<string[]>([EMPTY_PREVIEW_PAGE_HTML]);
+const previewPagedStylesText = ref('');
 const currentPage = ref(1);
 const pageCount = ref(1);
 const previewRendering = ref(false);
 
-let resizeObserver: ResizeObserver | null = null;
 let resizeRafId: number | null = null;
-let imageEventAbortController: AbortController | null = null;
+let previewRenderingDelayId: number | null = null;
 let settleRecalculateTimeoutId: number | null = null;
 let previewRenderVersion = 0;
+let previewRenderInFlight = false;
+let previewRenderQueued = false;
+let previewUnmounted = false;
+let previewPagedStyleElement: HTMLStyleElement | null = null;
 
 const paperSizeMeta = computed(() =>
   store.exportSetting.paperSize === 'A4'
@@ -110,6 +117,67 @@ const articleStyle = computed(() => ({
 const currentPreviewPageHtml = computed(
   () => previewPageHtmlList.value[currentPage.value - 1] ?? EMPTY_PREVIEW_PAGE_HTML,
 );
+
+const arePreviewPagesEqual = (nextPages: string[]): boolean => {
+  if (previewPageHtmlList.value.length !== nextPages.length) {
+    return false;
+  }
+
+  return nextPages.every((page, index) => previewPageHtmlList.value[index] === page);
+};
+
+const showPreviewRenderingLater = (): void => {
+  if (previewRendering.value || previewRenderingDelayId !== null) {
+    return;
+  }
+
+  previewRenderingDelayId = window.setTimeout(() => {
+    previewRenderingDelayId = null;
+    if (previewRenderInFlight && !previewUnmounted) {
+      previewRendering.value = true;
+    }
+  }, PREVIEW_RENDERING_DELAY_MS);
+};
+
+const hidePreviewRendering = (): void => {
+  if (previewRenderingDelayId !== null) {
+    window.clearTimeout(previewRenderingDelayId);
+    previewRenderingDelayId = null;
+  }
+
+  previewRendering.value = false;
+};
+
+const ensurePreviewPagedStyleElement = (): HTMLStyleElement | null => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  if (previewPagedStyleElement !== null && document.head.contains(previewPagedStyleElement)) {
+    return previewPagedStyleElement;
+  }
+
+  const existingStyleElement = document.getElementById(PREVIEW_PAGED_STYLE_ID);
+  if (existingStyleElement instanceof HTMLStyleElement) {
+    previewPagedStyleElement = existingStyleElement;
+    return previewPagedStyleElement;
+  }
+
+  const styleElement = document.createElement('style');
+  styleElement.id = PREVIEW_PAGED_STYLE_ID;
+  document.head.appendChild(styleElement);
+  previewPagedStyleElement = styleElement;
+  return previewPagedStyleElement;
+};
+
+const syncPreviewPagedStyles = (): void => {
+  const styleElement = ensurePreviewPagedStyleElement();
+  if (styleElement === null) {
+    return;
+  }
+
+  styleElement.textContent = previewPagedStylesText.value;
+};
 
 const buildPreviewPayload = (): ExportPayload | null => {
   const root = measureRootRef.value;
@@ -174,41 +242,73 @@ const waitForPreviewAssets = async (): Promise<void> => {
 };
 
 const recalculatePagination = async (): Promise<void> => {
-  const payload = buildPreviewPayload();
-  if (payload === null) {
+  if (previewUnmounted) {
     return;
   }
 
-  const currentVersion = ++previewRenderVersion;
-  previewRendering.value = true;
+  if (previewRenderInFlight) {
+    previewRenderQueued = true;
+    return;
+  }
+
+  previewRenderInFlight = true;
+  showPreviewRenderingLater();
 
   try {
     const { renderBrowserPreviewPages } = await import('@/services/export/engines/browserPrintEngine');
-    const renderedPages = await renderBrowserPreviewPages(payload);
 
-    if (currentVersion !== previewRenderVersion) {
-      return;
+    while (!previewUnmounted) {
+      const payload = buildPreviewPayload();
+      previewRenderQueued = false;
+
+      if (payload === null) {
+        break;
+      }
+
+      const currentVersion = ++previewRenderVersion;
+
+      try {
+        const renderedPreview = await renderBrowserPreviewPages(payload);
+
+        if (previewUnmounted || currentVersion !== previewRenderVersion) {
+          continue;
+        }
+
+        previewPagedStylesText.value = renderedPreview.stylesText;
+
+        const nextPageHtmlList = renderedPreview.pages.length > 0
+          ? renderedPreview.pages.map((page) => page.html)
+          : [EMPTY_PREVIEW_PAGE_HTML];
+
+        if (!arePreviewPagesEqual(nextPageHtmlList)) {
+          previewPageHtmlList.value = nextPageHtmlList;
+        }
+
+        const totalPages = Math.max(1, nextPageHtmlList.length);
+        pageCount.value = totalPages;
+        currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
+      } catch (error) {
+        if (previewUnmounted || currentVersion !== previewRenderVersion) {
+          continue;
+        }
+
+        console.error('Failed to render preview pages with export-standard pagination.', error);
+        previewPagedStylesText.value = '';
+        previewPageHtmlList.value = [EMPTY_PREVIEW_PAGE_HTML];
+        pageCount.value = 1;
+        currentPage.value = 1;
+      }
+
+      if (!previewRenderQueued) {
+        break;
+      }
     }
-
-    previewPageHtmlList.value = renderedPages.length > 0
-      ? renderedPages.map((page) => page.html)
-      : [EMPTY_PREVIEW_PAGE_HTML];
-
-    const totalPages = Math.max(1, previewPageHtmlList.value.length);
-    pageCount.value = totalPages;
-    currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
-  } catch (error) {
-    if (currentVersion !== previewRenderVersion) {
-      return;
-    }
-
-    console.error('Failed to render preview pages with export-standard pagination.', error);
-    previewPageHtmlList.value = [EMPTY_PREVIEW_PAGE_HTML];
-    pageCount.value = 1;
-    currentPage.value = 1;
   } finally {
-    if (currentVersion === previewRenderVersion) {
-      previewRendering.value = false;
+    previewRenderInFlight = false;
+    hidePreviewRendering();
+
+    if (previewRenderQueued && !previewUnmounted) {
+      void recalculatePagination();
     }
   }
 };
@@ -225,8 +325,6 @@ const scheduleRecalculate = (): void => {
 };
 
 const scheduleAssetSettledRecalculate = (): void => {
-  scheduleRecalculate();
-
   if (settleRecalculateTimeoutId !== null) {
     window.clearTimeout(settleRecalculateTimeoutId);
   }
@@ -234,42 +332,7 @@ const scheduleAssetSettledRecalculate = (): void => {
   settleRecalculateTimeoutId = window.setTimeout(() => {
     settleRecalculateTimeoutId = null;
     scheduleRecalculate();
-  }, 80);
-};
-
-const stopImageEventTracking = (): void => {
-  if (imageEventAbortController !== null) {
-    imageEventAbortController.abort();
-    imageEventAbortController = null;
-  }
-};
-
-const startImageEventTracking = (root: HTMLElement | null): void => {
-  stopImageEventTracking();
-
-  if (root === null) {
-    return;
-  }
-
-  const abortController = new AbortController();
-  const onAssetSettled = (event: Event): void => {
-    if (!(event.target instanceof HTMLImageElement)) {
-      return;
-    }
-
-    scheduleAssetSettledRecalculate();
-  };
-
-  root.addEventListener('load', onAssetSettled, {
-    capture: true,
-    signal: abortController.signal,
-  });
-  root.addEventListener('error', onAssetSettled, {
-    capture: true,
-    signal: abortController.signal,
-  });
-
-  imageEventAbortController = abortController;
+  }, ASSET_SETTLE_RECALCULATE_DELAY_MS);
 };
 
 const toPrevPage = (): void => {
@@ -292,27 +355,21 @@ watch(
 );
 
 watch(measureRootRef, (root, previousRoot) => {
-  if (resizeObserver !== null && previousRoot !== null) {
-    resizeObserver.unobserve(previousRoot);
+  void previousRoot;
+  if (root === null) {
+    return;
   }
 
-  if (resizeObserver !== null && root !== null) {
-    resizeObserver.observe(root);
-  }
+  scheduleRecalculate();
+});
 
-  startImageEventTracking(root);
-  scheduleAssetSettledRecalculate();
+watch(previewPagedStylesText, () => {
+  syncPreviewPagedStyles();
 });
 
 onMounted(async () => {
-  resizeObserver = new ResizeObserver(() => {
-    scheduleRecalculate();
-  });
-
-  if (measureRootRef.value !== null) {
-    resizeObserver.observe(measureRootRef.value);
-  }
-  startImageEventTracking(measureRootRef.value);
+  previewUnmounted = false;
+  syncPreviewPagedStyles();
 
   window.addEventListener('resize', scheduleRecalculate);
   await nextTick();
@@ -322,23 +379,24 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  previewUnmounted = true;
+  previewRenderQueued = false;
   previewRenderVersion += 1;
+  previewPagedStylesText.value = '';
 
   if (resizeRafId !== null) {
     cancelAnimationFrame(resizeRafId);
     resizeRafId = null;
   }
 
-  if (resizeObserver !== null) {
-    resizeObserver.disconnect();
-    resizeObserver = null;
-  }
-
-  stopImageEventTracking();
+  hidePreviewRendering();
   if (settleRecalculateTimeoutId !== null) {
     window.clearTimeout(settleRecalculateTimeoutId);
     settleRecalculateTimeoutId = null;
   }
+
+  previewPagedStyleElement?.remove();
+  previewPagedStyleElement = null;
 
   window.removeEventListener('resize', scheduleRecalculate);
 });

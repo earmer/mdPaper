@@ -4,6 +4,9 @@ import {
 } from '@/constants/journal';
 import type { ExportPayload } from '@/types/manuscript';
 
+const FOOTER_LEFT_TEXT = 'R.U.B.B.I.S.H. Journal — an experimental publication.';
+const FOOTER_RIGHT_TEXT = '© The Author(s)';
+
 export const getPaperCssSize = (paper: 'A4' | 'Letter'): string =>
   paper === 'Letter' ? 'Letter' : 'A4';
 
@@ -40,13 +43,22 @@ export const buildHeaderRightText = (payload: ExportPayload): string => {
 };
 
 export const buildFooterLeftText = (payload: ExportPayload): string => {
-  void payload;
-  return '';
+  if (!payload.exportSetting.headerFooter.showFooter) {
+    return '';
+  }
+
+  return FOOTER_LEFT_TEXT;
 };
 
 export const buildFooterRightText = (payload: ExportPayload): string => {
-  void payload;
-  return '';
+  if (
+    !payload.exportSetting.headerFooter.showFooter
+    || !payload.exportSetting.headerFooter.showCopyright
+  ) {
+    return '';
+  }
+
+  return FOOTER_RIGHT_TEXT;
 };
 
 export const buildPageLabel = (

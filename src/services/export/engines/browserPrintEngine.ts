@@ -1,4 +1,4 @@
-import { Previewer, type PagedStylesheet, type PreviewFlow } from 'pagedjs';
+import { Previewer, type PagedStylesheet } from 'pagedjs';
 import type { ExportPayload } from '@/types/manuscript';
 import {
   EXPORT_ROOT_ID,
@@ -39,11 +39,47 @@ interface BrowserPrintContext {
 interface BrowserPrintContextOptions {
   rootId?: string;
   rootClass?: string;
+  clearExistingRoot?: boolean;
 }
 
 export interface BrowserPreviewPageSnapshot {
   html: string;
 }
+
+export interface BrowserPreviewRenderSnapshot {
+  pages: BrowserPreviewPageSnapshot[];
+  stylesText: string;
+}
+
+interface PagedPageHandle {
+  destroy?: () => void;
+}
+
+interface PagedChunkerHandle {
+  destroy?: () => void;
+  pages?: PagedPageHandle[];
+  removePages?: (fromIndex?: number) => void;
+  stop?: () => void;
+}
+
+interface PagedPolisherHandle {
+  base?: HTMLStyleElement;
+  destroy?: () => void;
+  inserted?: HTMLStyleElement[];
+  styleEl?: HTMLStyleElement;
+}
+
+interface InternalPreviewer extends Previewer {
+  chunker?: PagedChunkerHandle;
+  polisher?: PagedPolisherHandle;
+}
+
+interface RenderedPagedDocument {
+  dispose: () => void;
+  stylesText: string;
+}
+
+let browserPreviewRenderId = 0;
 
 const toPrintTitle = (fileName: string): string =>
   fileName.replace(/\.pdf$/iu, '').trim() || 'mdPaper';
@@ -287,8 +323,11 @@ const createBrowserPrintContext = (
 ): BrowserPrintContext => {
   const rootId = options.rootId ?? EXPORT_ROOT_ID;
   const rootClass = options.rootClass ?? BROWSER_PRINT_ROOT_CLASS;
+  const clearExistingRoot = options.clearExistingRoot ?? true;
 
-  document.getElementById(rootId)?.remove();
+  if (clearExistingRoot) {
+    document.getElementById(rootId)?.remove();
+  }
 
   const measurePage = payload.articleElement.cloneNode(true) as HTMLElement;
   measurePage.classList.add(BROWSER_PRINT_MEASURE_CLASS);
@@ -330,10 +369,56 @@ const createBrowserPrintContext = (
   };
 };
 
+const destroyPagedPreviewer = (previewer: Previewer | null | undefined): void => {
+  const internalPreviewer = previewer as InternalPreviewer | null | undefined;
+  if (internalPreviewer === null || internalPreviewer === undefined) {
+    return;
+  }
+
+  const chunker = internalPreviewer.chunker;
+  try {
+    chunker?.stop?.();
+  } catch {}
+
+  try {
+    chunker?.removePages?.();
+  } catch {
+    chunker?.pages?.forEach((page) => {
+      try {
+        page.destroy?.();
+      } catch {}
+    });
+  }
+
+  try {
+    chunker?.destroy?.();
+  } catch {}
+
+  try {
+    internalPreviewer.polisher?.destroy?.();
+  } catch {}
+};
+
+const collectPagedPreviewStyles = (previewer: Previewer): string => {
+  const internalPreviewer = previewer as InternalPreviewer;
+  const polisher = internalPreviewer.polisher;
+  if (polisher === undefined) {
+    return '';
+  }
+
+  return [
+    polisher.base?.textContent ?? '',
+    polisher.styleEl?.textContent ?? '',
+    ...(polisher.inserted?.map((styleElement) => styleElement.textContent ?? '') ?? []),
+  ]
+    .join('\n')
+    .trim();
+};
+
 const renderPagedDocument = async (
   payload: ExportPayload,
   context: BrowserPrintContext,
-): Promise<PreviewFlow> => {
+): Promise<RenderedPagedDocument> => {
   await waitForExportRenderReady(context.measurePage);
   stripKatexMathMlForExport(context.sourceArticle);
   scaleDisplayMathBlocks(context.sourceArticle, payload);
@@ -344,18 +429,37 @@ const renderPagedDocument = async (
   pagedSource.removeAttribute('id');
 
   const previewer = new Previewer();
-  const flow = await previewer.preview(
-    pagedSource,
-    [buildPagedStylesheet(payload)],
-    context.pages,
-  );
+  let disposed = false;
 
-  forceCenterAlignedBlocks(context.pages);
-  injectRunningChrome(payload, context.pages, flow.total);
-  await waitForExportRenderReady(context.pages);
-  await nextAnimationFrame();
+  const dispose = (): void => {
+    if (disposed) {
+      return;
+    }
 
-  return flow;
+    disposed = true;
+    destroyPagedPreviewer(previewer);
+  };
+
+  try {
+    const flow = await previewer.preview(
+      pagedSource,
+      [buildPagedStylesheet(payload)],
+      context.pages,
+    );
+
+    forceCenterAlignedBlocks(context.pages);
+    injectRunningChrome(payload, context.pages, flow.total);
+    await waitForExportRenderReady(context.pages);
+    await nextAnimationFrame();
+
+    return {
+      dispose,
+      stylesText: collectPagedPreviewStyles(previewer),
+    };
+  } catch (error) {
+    dispose();
+    throw error;
+  }
 };
 
 const snapshotPreviewPages = (pagesRoot: HTMLElement): BrowserPreviewPageSnapshot[] =>
@@ -369,17 +473,23 @@ const snapshotPreviewPages = (pagesRoot: HTMLElement): BrowserPreviewPageSnapsho
 
 export const renderBrowserPreviewPages = async (
   payload: ExportPayload,
-): Promise<BrowserPreviewPageSnapshot[]> => {
+): Promise<BrowserPreviewRenderSnapshot> => {
+  let renderedDocument: RenderedPagedDocument | null = null;
   const context = createBrowserPrintContext(payload, {
-    rootId: BROWSER_PREVIEW_ROOT_ID,
+    rootId: `${BROWSER_PREVIEW_ROOT_ID}-${browserPreviewRenderId += 1}`,
     rootClass: BROWSER_PREVIEW_ROOT_CLASS,
+    clearExistingRoot: false,
   });
 
   try {
     await nextAnimationFrame();
-    await renderPagedDocument(payload, context);
-    return snapshotPreviewPages(context.pages);
+    renderedDocument = await renderPagedDocument(payload, context);
+    return {
+      pages: snapshotPreviewPages(context.pages),
+      stylesText: renderedDocument.stylesText,
+    };
   } finally {
+    renderedDocument?.dispose();
     context.dispose();
   }
 };
@@ -433,13 +543,15 @@ export const exportByBrowserPrintPdf = async (
   fileName: string,
 ): Promise<void> => {
   document.body.classList.add(BROWSER_PRINT_BODY_CLASS);
+  let renderedDocument: RenderedPagedDocument | null = null;
   const context = createBrowserPrintContext(payload);
 
   try {
     await nextAnimationFrame();
-    await renderPagedDocument(payload, context);
+    renderedDocument = await renderPagedDocument(payload, context);
     await printCurrentWindow(fileName);
   } finally {
+    renderedDocument?.dispose();
     context.dispose();
     document.body.classList.remove(BROWSER_PRINT_BODY_CLASS);
   }
