@@ -780,7 +780,6 @@ body.canvas-exporting .journal-page-header-static {
 .markdown-body {
   text-align: justify;
   color: #111827;
-  counter-reset: figure table equation;
   hyphens: auto;
 }
 
@@ -970,7 +969,6 @@ body.canvas-exporting .journal-page-header-static {
   text-align: center !important;
   break-after: avoid-page;
   page-break-after: avoid;
-  counter-increment: table;
 }
 
 .markdown-body table > caption {
@@ -984,12 +982,11 @@ body.canvas-exporting .journal-page-header-static {
   text-align: center !important;
   break-after: avoid-page;
   page-break-after: avoid;
-  counter-increment: table;
 }
 
 .markdown-body .md-table-caption::before,
 .markdown-body table > caption::before {
-  content: 'Table ' counter(table) ': ';
+  content: 'Table ' attr(data-table-number) ': ';
   color: #27272a;
   font-family: var(--font-times), serif;
   font-weight: 600;
@@ -1022,7 +1019,6 @@ body.canvas-exporting .journal-page-header-static {
   width: 100%;
   margin: 0 auto 0.8em;
   text-align: center !important;
-  counter-increment: figure;
 }
 
 .md-figure img,
@@ -1051,7 +1047,7 @@ body.canvas-exporting .journal-page-header-static {
 
 .md-figure figcaption::before,
 .markdown-body figure figcaption::before {
-  content: 'Figure ' counter(figure) ': ';
+  content: 'Figure ' attr(data-figure-number) ': ';
   color: #27272a;
   font-family: var(--font-times), serif;
   font-weight: 600;
@@ -1068,11 +1064,10 @@ body.canvas-exporting .journal-page-header-static {
   position: relative;
   padding-top: 0.06em;
   padding-bottom: 0.12em;
-  counter-increment: equation;
 }
 
 .markdown-body .katex-display-block::after {
-  content: '(' counter(equation) ')';
+  content: '(' attr(data-equation-number) ')';
   grid-column: 3;
   justify-self: end;
   align-self: center;
