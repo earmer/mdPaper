@@ -3,8 +3,8 @@ import { computed, nextTick, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
-import { compressImage } from '@/services/image/compressImage';
-import { fileToDataUrl, urlToDataUrl } from '@/services/image/imageToBase64';
+import { normalizeImageAssetBlob } from '@/services/image/normalizeAsset';
+import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { defaultImageAlt, toInlineImageMarkdown } from '@/utils/format';
@@ -78,12 +78,21 @@ const toolbarActions = computed<ToolbarAction[]>(() => [
   },
 ]);
 
+const fullscreenDocument = computed(() =>
+  buildManuscriptDocument(store.metadata, store.content),
+);
+
 const renderedFullscreenHtml = computed(() =>
-  renderMarkdown(store.content, {
-    normalizeJournalHeadings: false,
+  renderMarkdown(fullscreenDocument.value.source, {
+    normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
     resolveImageSrc: (source) => store.resolveImageAsset(source),
+    citationRegistry: fullscreenDocument.value.citations,
   }),
 );
+
+const imageDisplayStyle = computed(() => ({
+  '--md-figure-max-width': `${store.imageOption.maxDisplayPercent}%`,
+}));
 
 const getTextareaFromRoot = (root: HTMLElement | null): HTMLTextAreaElement | null =>
   root?.querySelector('textarea') ?? null;
@@ -96,6 +105,21 @@ const resolveActiveTextarea = (): HTMLTextAreaElement | null => {
   }
 
   return lastFocusedTextarea.value ?? getTextareaFromRoot(wrapperRef.value);
+};
+
+const resolveCursorLine = (textarea: HTMLTextAreaElement): number => {
+  const cursor = textarea.selectionStart;
+  const before = textarea.value.slice(0, cursor);
+  return before.split('\n').length;
+};
+
+const syncCursorLine = (event: Event): void => {
+  if (!(event.target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  lastFocusedTextarea.value = event.target;
+  store.setEditorCursorLine(resolveCursorLine(event.target));
 };
 
 const insertAtCursor = (snippet: string): void => {
@@ -129,6 +153,7 @@ const markFocusedTextarea = (event: FocusEvent): void => {
   }
 
   lastFocusedTextarea.value = event.target;
+  store.setEditorCursorLine(resolveCursorLine(event.target));
 };
 
 const openFullscreenEditor = async (): Promise<void> => {
@@ -142,16 +167,16 @@ const openFullscreenEditor = async (): Promise<void> => {
 };
 
 const buildImageMarkdown = async (file: File): Promise<string> => {
-  let targetBlob: Blob = file;
-
-  if (store.imageOption.enableCompression) {
-    targetBlob = await compressImage(file, {
+  const normalized = await normalizeImageAssetBlob(
+    file,
+    {
       quality: store.imageOption.quality,
       maxWidth: store.imageOption.maxWidth,
-    });
-  }
+    },
+    file.name,
+  );
 
-  const dataUrl = await fileToDataUrl(targetBlob);
+  const dataUrl = normalized.dataUrl;
   const alt = defaultImageAlt();
   const assetSource = store.addImageAsset(dataUrl);
   return `${toInlineImageMarkdown(alt, assetSource)}\n`;
@@ -292,34 +317,16 @@ const processImageUrl = async (url: string): Promise<boolean> => {
 
   if (url.startsWith('data:image/')) {
     const assetSource = store.addImageAsset(url);
-    insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
+    insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}
+`);
     MessagePlugin.success(t('app.imageInserted', { name: 'data-url' }));
     return true;
   }
 
-  try {
-    const dataUrl = await urlToDataUrl(url);
-    const assetSource = store.addImageAsset(dataUrl);
-    insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
-    MessagePlugin.success(t('app.imageInserted', { name: url }));
-    return true;
-  } catch {
-    try {
-      const response = await fetch(url, { mode: 'no-cors' });
-      const blob = await response.blob();
-      if (blob.size <= 0) {
-        throw new Error('empty blob');
-      }
-      const dataUrl = await fileToDataUrl(blob);
-      const assetSource = store.addImageAsset(dataUrl);
-      insertAtCursor(`${toInlineImageMarkdown(alt, assetSource)}\n`);
-      MessagePlugin.success(t('app.imageInserted', { name: url }));
-      return true;
-    } catch {
-      MessagePlugin.error(t('errors.fetchFailed', { url }));
-      return false;
-    }
-  }
+  insertAtCursor(`${toInlineImageMarkdown(alt, url)}
+`);
+  MessagePlugin.warning(t('errors.remoteImageUnsupported'));
+  return true;
 };
 
 const shouldHandleDrag = (event: DragEvent): boolean => {
@@ -466,7 +473,11 @@ const onDragLeave = (event: DragEvent): void => {
           :placeholder="t('form.contentPlaceholder')"
           :autosize="{ minRows: 22, maxRows: 40 }"
           @focus="markFocusedTextarea"
+          @input="syncCursorLine"
           @paste="onPaste"
+          @click="syncCursorLine"
+          @keyup="syncCursorLine"
+          @select="syncCursorLine"
         />
       </TFormItem>
 
@@ -502,6 +513,18 @@ const onDragLeave = (event: DragEvent): void => {
               :min="320"
               :max="5000"
               :step="10"
+            />
+          </div>
+
+          <div class="markdown-editor__image-option-row">
+            <span class="markdown-editor__image-option-label">{{ t('form.imageDisplaySize') }}</span>
+            <TInputNumber
+              v-model="store.imageOption.maxDisplayPercent"
+              class="markdown-editor__image-option-input"
+              :min="10"
+              :max="100"
+              :step="5"
+              suffix="%"
             />
           </div>
         </TSpace>
@@ -552,7 +575,11 @@ const onDragLeave = (event: DragEvent): void => {
           :placeholder="t('form.contentPlaceholder')"
           :autosize="false"
           @focus="markFocusedTextarea"
+          @input="syncCursorLine"
           @paste="onPaste"
+          @click="syncCursorLine"
+          @keyup="syncCursorLine"
+          @select="syncCursorLine"
         />
       </section>
 
@@ -561,7 +588,7 @@ const onDragLeave = (event: DragEvent): void => {
           {{ t('form.liveMarkdownPreview') }}
         </div>
         <div
-          class="markdown-editor-fullscreen__preview markdown-body"
+          class="markdown-editor-fullscreen__preview markdown-body" :style="imageDisplayStyle"
           :lang="store.locale"
           v-html="renderedFullscreenHtml"
         />

@@ -1,500 +1,350 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { Icon } from '@iconify/vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
-import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
+import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
-import { useManuscriptStore } from '@/store/useManuscriptStore';
-import type { ExportPayload } from '@/types/manuscript';
 import {
-  formatAffiliationLine,
-  formatAuthorAffiliation,
-} from '@/utils/format';
+  compileManuscriptTypst,
+  prepareTypstManuscript,
+} from '@/services/typst/compileManuscript';
+import {
+  getTypstTemplateDefinition,
+  typstTemplates,
+} from '@/services/typst/templates';
+import { useManuscriptStore } from '@/store/useManuscriptStore';
+import type { PreviewSurface, TypstTemplateId } from '@/types/manuscript';
+
+const COMPILE_DEBOUNCE_MS = 450;
 
 const { t } = useI18n();
 const store = useManuscriptStore();
+const debugSourceExpanded = ref(true);
+let compileTimer: number | null = null;
+let compileTaskId = 0;
 
-const EMPTY_PREVIEW_PAGE_HTML = '';
-const ASSET_SETTLE_RECALCULATE_DELAY_MS = 80;
-const PREVIEW_RENDERING_DELAY_MS = 120;
-const PREVIEW_PAGED_STYLE_ID = 'preview-pagedjs-styles';
+const manuscriptDocument = computed(() =>
+  buildManuscriptDocument(store.metadata, store.content),
+);
 
-const renderedBodyHtml = computed(() =>
-  renderMarkdown(store.content, {
+const renderedHtml = computed(() =>
+  renderMarkdown(manuscriptDocument.value.source, {
     normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
     resolveImageSrc: (source) => store.resolveImageAsset(source),
+    citationRegistry: manuscriptDocument.value.citations,
   }),
 );
 
-const authorLineHtml = computed(() =>
-  formatAuthorAffiliation(
-    store.metadata.authors,
-    store.metadata.affiliations,
-    store.metadata.correspondingAuthorId,
-  ).join('， '),
+const imageDisplayStyle = computed(() => ({
+  '--md-figure-max-width': `${store.imageOption.maxDisplayPercent}%`,
+}));
+
+const templateOptions = computed(() =>
+  typstTemplates.map((template) => ({
+    label: t(template.labelKey),
+    value: template.id,
+  })),
 );
 
-const affiliationLines = computed(() =>
-  store.metadata.affiliations.map((item, index) => formatAffiliationLine(item, index)),
+const currentTemplate = computed(
+  () => getTypstTemplateDefinition(store.typstTemplateId),
 );
 
-const correspondingAuthorLine = computed(() => {
-  const selectedAuthor = store.metadata.authors.find(
-    (author) => author.id === store.metadata.correspondingAuthorId,
-  );
-  if (selectedAuthor === undefined) {
-    return '';
+const compiledAtText = computed(() => {
+  if (store.typst.compiledAt.length === 0) {
+    return '—';
   }
 
-  const displayName = selectedAuthor.name.trim() || selectedAuthor.nameEn.trim();
-  if (displayName.length === 0) {
-    return '';
-  }
-
-  const contact = store.metadata.correspondingAuthorContact.trim();
-  if (contact.length === 0) {
-    return `* ${t('preview.correspondingAuthor')}: ${displayName}`;
-  }
-
-  return `* ${t('preview.correspondingAuthor')}: ${displayName} (${contact})`;
+  return new Date(store.typst.compiledAt).toLocaleString(store.locale);
 });
 
-const keywordLine = computed(() =>
-  store.metadata.keywords
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-    .join('; '),
+const statusLabel = computed(() => {
+  if (store.typst.status === 'compiling') {
+    return t('preview.statusCompiling');
+  }
+  if (store.typst.status === 'ready') {
+    return t('preview.statusReady');
+  }
+  if (store.typst.status === 'error') {
+    return t('preview.statusError');
+  }
+  return t('preview.statusIdle');
+});
+
+const statusTheme = computed(() => {
+  if (store.typst.status === 'compiling') {
+    return 'warning';
+  }
+  if (store.typst.status === 'ready') {
+    return 'success';
+  }
+  if (store.typst.status === 'error') {
+    return 'danger';
+  }
+  return 'default';
+});
+
+const errorSummary = computed(() => {
+  if (store.typst.errorMessage.length > 0) {
+    return store.typst.errorMessage;
+  }
+
+  return store.typst.diagnostics.find((item) => item.severity === 'error')?.message ?? '';
+});
+
+const normalizedDiagnostics = computed(() =>
+  store.typst.diagnostics.map((item, index) => ({
+    id: `${item.source}-${index}`,
+    title: item.source === 'typst' ? t('preview.typstDiagnostic') : t('preview.referenceDiagnostic'),
+    theme: item.severity === 'error' ? 'danger' : item.severity === 'warning' ? 'warning' : 'default',
+    text: [item.message, item.path, item.range].filter((part) => typeof part === 'string' && part.length > 0).join(' · '),
+    detail: item.detail ?? '',
+  })),
 );
 
-const measureRootRef = ref<HTMLElement | null>(null);
-const previewPageHtmlList = ref<string[]>([EMPTY_PREVIEW_PAGE_HTML]);
-const previewPagedStylesText = ref('');
-const currentPage = ref(1);
-const pageCount = ref(1);
-const previewRendering = ref(false);
+const runtimeDebugLines = computed(() => [
+  `status=${store.typst.status}`,
+  `template=${store.typst.templateId}`,
+  `compiledAt=${store.typst.compiledAt || 'n/a'}`,
+  `previewSurface=${store.previewSurface}`,
+  ...store.typst.virtualProjectSummary,
+]);
 
-let resizeRafId: number | null = null;
-let previewRenderingDelayId: number | null = null;
-let settleRecalculateTimeoutId: number | null = null;
-let previewRenderVersion = 0;
-let previewRenderInFlight = false;
-let previewRenderQueued = false;
-let previewUnmounted = false;
-let previewPagedStyleElement: HTMLStyleElement | null = null;
-
-const paperSizeMeta = computed(() =>
-  store.exportSetting.paperSize === 'A4'
-    ? { widthMm: 210, heightMm: 297 }
-    : { widthMm: 216, heightMm: 279.4 },
-);
-
-const previewWindowStyle = computed(() => ({
-  width: `${paperSizeMeta.value.widthMm}mm`,
-  height: `${paperSizeMeta.value.heightMm}mm`,
-}));
-
-const pageIndicatorText = computed(() =>
-  t('preview.pageOf', { page: currentPage.value, total: pageCount.value }),
-);
-
-const articleStyle = computed(() => ({
-  '--body-font-size': `${store.exportSetting.fontSize}pt`,
-  '--body-line-height': `${store.exportSetting.lineHeight}`,
-  '--body-paragraph-indent': `${store.exportSetting.paragraphIndent}em`,
-  '--paper-margin-top': `${store.exportSetting.margins.top}mm`,
-  '--paper-margin-right': `${store.exportSetting.margins.right}mm`,
-  '--paper-margin-bottom': `${store.exportSetting.margins.bottom}mm`,
-  '--paper-margin-left': `${store.exportSetting.margins.left}mm`,
-  '--paper-size': store.exportSetting.paperSize,
-}));
-
-const currentPreviewPageHtml = computed(
-  () => previewPageHtmlList.value[currentPage.value - 1] ?? EMPTY_PREVIEW_PAGE_HTML,
-);
-
-const arePreviewPagesEqual = (nextPages: string[]): boolean => {
-  if (previewPageHtmlList.value.length !== nextPages.length) {
-    return false;
+const hasTypstPreview = computed(() => store.typst.svgContent.length > 0);
+const linkedImageAlertText = computed(() => {
+  const count = store.remoteImageUrls.length;
+  if (count === 0) {
+    return '';
   }
 
-  return nextPages.every((page, index) => previewPageHtmlList.value[index] === page);
+  return t('preview.linkedImageUnsupported', { count });
+});
+
+
+const handleTemplateChange = (value: string | number): void => {
+  if (value === 'rubbish-default' || value === 'rubbish-compact') {
+    store.setTypstTemplate(value as TypstTemplateId);
+  }
 };
 
-const showPreviewRenderingLater = (): void => {
-  if (previewRendering.value || previewRenderingDelayId !== null) {
+const handleSurfaceChange = (value: string | number | boolean): void => {
+  if (value === 'typst' || value === 'html-fallback') {
+    store.setPreviewSurface(value as PreviewSurface);
+  }
+};
+
+const copyGeneratedSource = async (): Promise<void> => {
+  if (store.typst.generatedSource.length === 0) {
     return;
   }
-
-  previewRenderingDelayId = window.setTimeout(() => {
-    previewRenderingDelayId = null;
-    if (previewRenderInFlight && !previewUnmounted) {
-      previewRendering.value = true;
-    }
-  }, PREVIEW_RENDERING_DELAY_MS);
-};
-
-const hidePreviewRendering = (): void => {
-  if (previewRenderingDelayId !== null) {
-    window.clearTimeout(previewRenderingDelayId);
-    previewRenderingDelayId = null;
-  }
-
-  previewRendering.value = false;
-};
-
-const ensurePreviewPagedStyleElement = (): HTMLStyleElement | null => {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-
-  if (previewPagedStyleElement !== null && document.head.contains(previewPagedStyleElement)) {
-    return previewPagedStyleElement;
-  }
-
-  const existingStyleElement = document.getElementById(PREVIEW_PAGED_STYLE_ID);
-  if (existingStyleElement instanceof HTMLStyleElement) {
-    previewPagedStyleElement = existingStyleElement;
-    return previewPagedStyleElement;
-  }
-
-  const styleElement = document.createElement('style');
-  styleElement.id = PREVIEW_PAGED_STYLE_ID;
-  document.head.appendChild(styleElement);
-  previewPagedStyleElement = styleElement;
-  return previewPagedStyleElement;
-};
-
-const syncPreviewPagedStyles = (): void => {
-  const styleElement = ensurePreviewPagedStyleElement();
-  if (styleElement === null) {
-    return;
-  }
-
-  styleElement.textContent = previewPagedStylesText.value;
-};
-
-const buildPreviewPayload = (): ExportPayload | null => {
-  const root = measureRootRef.value;
-  if (root === null) {
-    return null;
-  }
-
-  return {
-    articleElement: root,
-    locale: store.locale,
-    metadata: store.metadata,
-    exportSetting: store.exportSetting,
-  };
-};
-
-const waitForPreviewAssets = async (): Promise<void> => {
-  const root = measureRootRef.value;
-  if (root === null) {
-    return;
-  }
-
-  const fontSet = (document as Document & { fonts?: FontFaceSet }).fonts;
-  if (fontSet !== undefined) {
-    try {
-      await Promise.allSettled([
-        fontSet.load('1em KaTeX_Main'),
-        fontSet.load('1em KaTeX_Math'),
-      ]);
-      await fontSet.ready;
-    } catch {
-      // ignore font readiness failures for preview
-    }
-  }
-
-  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
-  await Promise.allSettled(
-    images.map(async (img) => {
-      if (typeof img.decode === 'function') {
-        try {
-          await img.decode();
-          return;
-        } catch {
-          // fallback to load/error listeners
-        }
-      }
-
-      if (img.complete) {
-        return;
-      }
-
-      await new Promise<void>((resolve) => {
-        const done = (): void => {
-          img.removeEventListener('load', done);
-          img.removeEventListener('error', done);
-          resolve();
-        };
-        img.addEventListener('load', done, { once: true });
-        img.addEventListener('error', done, { once: true });
-      });
-    }),
-  );
-};
-
-const recalculatePagination = async (): Promise<void> => {
-  if (previewUnmounted) {
-    return;
-  }
-
-  if (previewRenderInFlight) {
-    previewRenderQueued = true;
-    return;
-  }
-
-  previewRenderInFlight = true;
-  showPreviewRenderingLater();
 
   try {
-    const { renderBrowserPreviewPages } = await import('@/services/export/engines/browserPrintEngine');
+    await navigator.clipboard.writeText(store.typst.generatedSource);
+    MessagePlugin.success(t('preview.copySourceSuccess'));
+  } catch {
+    MessagePlugin.error(t('preview.copySourceFailed'));
+  }
+};
 
-    while (!previewUnmounted) {
-      const payload = buildPreviewPayload();
-      previewRenderQueued = false;
+const triggerCompile = async (): Promise<void> => {
+  const taskId = ++compileTaskId;
+  const prepared = prepareTypstManuscript(
+    store.metadata,
+    store.content,
+    store.typstTemplateId,
+    store.imageOption,
+  );
+  store.setTypstCompiling(prepared.source);
 
-      if (payload === null) {
-        break;
-      }
+  try {
+    const result = await compileManuscriptTypst(
+      store.metadata,
+      store.content,
+      store.typstTemplateId,
+      store.imageAssets,
+      store.imageOption,
+    );
 
-      const currentVersion = ++previewRenderVersion;
-
-      try {
-        const renderedPreview = await renderBrowserPreviewPages(payload);
-
-        if (previewUnmounted || currentVersion !== previewRenderVersion) {
-          continue;
-        }
-
-        previewPagedStylesText.value = renderedPreview.stylesText;
-
-        const nextPageHtmlList = renderedPreview.pages.length > 0
-          ? renderedPreview.pages.map((page) => page.html)
-          : [EMPTY_PREVIEW_PAGE_HTML];
-
-        if (!arePreviewPagesEqual(nextPageHtmlList)) {
-          previewPageHtmlList.value = nextPageHtmlList;
-        }
-
-        const totalPages = Math.max(1, nextPageHtmlList.length);
-        pageCount.value = totalPages;
-        currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
-      } catch (error) {
-        if (previewUnmounted || currentVersion !== previewRenderVersion) {
-          continue;
-        }
-
-        console.error('Failed to render preview pages with export-standard pagination.', error);
-        previewPagedStylesText.value = '';
-        previewPageHtmlList.value = [EMPTY_PREVIEW_PAGE_HTML];
-        pageCount.value = 1;
-        currentPage.value = 1;
-      }
-
-      if (!previewRenderQueued) {
-        break;
-      }
+    if (taskId !== compileTaskId) {
+      return;
     }
-  } finally {
-    previewRenderInFlight = false;
-    hidePreviewRendering();
 
-    if (previewRenderQueued && !previewUnmounted) {
-      void recalculatePagination();
+    store.setTypstArtifacts(result);
+  } catch (error) {
+    if (taskId !== compileTaskId) {
+      return;
     }
+
+    store.setTypstArtifacts({
+      status: 'error',
+      errorMessage: error instanceof Error ? error.message : t('errors.generic'),
+      diagnostics: [{
+        severity: 'error',
+        message: error instanceof Error ? error.message : t('errors.generic'),
+        detail: error instanceof Error && error.stack !== undefined ? error.stack : '',
+        source: 'typst',
+      }],
+      generatedSource: store.typst.generatedSource,
+      svgContent: '',
+      pdfBlobUrl: '',
+      compiledAt: new Date().toISOString(),
+      templateId: store.typstTemplateId,
+      virtualProjectSummary: [],
+    });
   }
 };
 
-const scheduleRecalculate = (): void => {
-  if (resizeRafId !== null) {
-    cancelAnimationFrame(resizeRafId);
+const scheduleCompile = (): void => {
+  if (compileTimer !== null) {
+    window.clearTimeout(compileTimer);
   }
 
-  resizeRafId = requestAnimationFrame(() => {
-    resizeRafId = null;
-    void recalculatePagination();
-  });
-};
-
-const scheduleAssetSettledRecalculate = (): void => {
-  if (settleRecalculateTimeoutId !== null) {
-    window.clearTimeout(settleRecalculateTimeoutId);
-  }
-
-  settleRecalculateTimeoutId = window.setTimeout(() => {
-    settleRecalculateTimeoutId = null;
-    scheduleRecalculate();
-  }, ASSET_SETTLE_RECALCULATE_DELAY_MS);
-};
-
-const toPrevPage = (): void => {
-  currentPage.value = Math.max(1, currentPage.value - 1);
-};
-
-const toNextPage = (): void => {
-  currentPage.value = Math.min(pageCount.value, currentPage.value + 1);
+  compileTimer = window.setTimeout(() => {
+    void triggerCompile();
+  }, COMPILE_DEBOUNCE_MS);
 };
 
 watch(
-  () => [store.metadata, store.content, store.exportSetting],
-  async () => {
-    await nextTick();
-    scheduleRecalculate();
-    await waitForPreviewAssets();
-    scheduleAssetSettledRecalculate();
+  () => [store.metadata, store.content, store.typstTemplateId],
+  () => {
+    scheduleCompile();
   },
-  { deep: true },
+  { deep: true, immediate: true },
 );
 
-watch(measureRootRef, (root, previousRoot) => {
-  void previousRoot;
-  if (root === null) {
-    return;
-  }
-
-  scheduleRecalculate();
-});
-
-watch(previewPagedStylesText, () => {
-  syncPreviewPagedStyles();
-});
-
-onMounted(async () => {
-  previewUnmounted = false;
-  syncPreviewPagedStyles();
-
-  window.addEventListener('resize', scheduleRecalculate);
-  await nextTick();
-  scheduleRecalculate();
-  await waitForPreviewAssets();
-  scheduleAssetSettledRecalculate();
-});
-
 onBeforeUnmount(() => {
-  previewUnmounted = true;
-  previewRenderQueued = false;
-  previewRenderVersion += 1;
-  previewPagedStylesText.value = '';
-
-  if (resizeRafId !== null) {
-    cancelAnimationFrame(resizeRafId);
-    resizeRafId = null;
+  if (compileTimer !== null) {
+    window.clearTimeout(compileTimer);
   }
-
-  hidePreviewRendering();
-  if (settleRecalculateTimeoutId !== null) {
-    window.clearTimeout(settleRecalculateTimeoutId);
-    settleRecalculateTimeoutId = null;
-  }
-
-  previewPagedStyleElement?.remove();
-  previewPagedStyleElement = null;
-
-  window.removeEventListener('resize', scheduleRecalculate);
 });
 </script>
 
 <template>
-  <section class="preview-pane">
-    <div class="preview-pane__header">
-      <h2>{{ t('preview.title') }}</h2>
-      <div class="preview-pane__pagination">
-        <TButton
+  <div class="preview-pane">
+    <div class="preview-pane__toolbar">
+      <div class="preview-pane__toolbar-main">
+        <div class="preview-pane__title-wrap">
+          <h3 class="preview-pane__title">{{ t('preview.title') }}</h3>
+          <TTag :theme="statusTheme" variant="light">{{ statusLabel }}</TTag>
+        </div>
+        <p class="preview-pane__subtitle">{{ t(currentTemplate.descriptionKey) }}</p>
+      </div>
+
+      <div class="preview-pane__toolbar-actions">
+        <TSelect
+          :model-value="store.typstTemplateId"
+          :options="templateOptions"
+          class="preview-pane__template-select"
           size="small"
-          variant="outline"
-          :disabled="currentPage <= 1"
-          @click="toPrevPage"
-        >
-          {{ t('preview.prevPage') }}
-        </TButton>
-        <span class="preview-pane__page-indicator">{{ pageIndicatorText }}</span>
-        <TButton
+          @change="handleTemplateChange"
+        />
+        <TRadioGroup
+          :model-value="store.previewSurface"
+          variant="default-filled"
           size="small"
-          variant="outline"
-          :disabled="currentPage >= pageCount"
-          @click="toNextPage"
+          @change="handleSurfaceChange"
         >
-          {{ t('preview.nextPage') }}
+          <TRadioButton value="typst">{{ t('preview.modeTypstPreview') }}</TRadioButton>
+          <TRadioButton value="html-fallback">{{ t('preview.modeHtmlFallback') }}</TRadioButton>
+        </TRadioGroup>
+        <TButton size="small" variant="outline" @click="store.openTypstDebug">
+          <template #icon>
+            <Icon icon="mdi:bug-outline" />
+          </template>
+          {{ t('preview.typstDebug') }}
         </TButton>
       </div>
     </div>
 
-    <div class="preview-pane__stage">
-      <div class="preview-paper-viewer">
-        <div class="preview-page-window preview-page-window--paged" :style="previewWindowStyle">
-          <div
-            :key="`${currentPage}-${pageCount}`"
-            class="preview-page-rendered journal-print-pages"
-            :data-paper="store.exportSetting.paperSize"
-            :style="articleStyle"
-            v-html="currentPreviewPageHtml"
-          />
-          <div v-if="previewRendering" class="preview-page-rendering" aria-hidden="true">
-            {{ t('export.exporting') }}
+    <div class="preview-pane__meta-row">
+      <span>{{ t('preview.currentTemplate') }}: {{ t(currentTemplate.labelKey) }}</span>
+      <span>{{ t('preview.compiledAt') }}: {{ compiledAtText }}</span>
+    </div>
+
+    <TAlert
+      v-if="linkedImageAlertText.length > 0"
+      theme="warning"
+      :message="linkedImageAlertText"
+      class="preview-pane__alert"
+    />
+
+    <TAlert
+      v-else-if="store.typst.status === 'error' && errorSummary.length > 0"
+      theme="warning"
+      :message="errorSummary"
+      class="preview-pane__alert"
+    />
+
+    <div v-if="store.previewSurface === 'html-fallback'" class="preview-pane__surface preview-pane__surface--html">
+      <div class="preview-pane__fallback-note">
+        <TTag theme="warning" variant="light">{{ t('preview.htmlFallbackTag') }}</TTag>
+      </div>
+      <article class="preview-pane__fallback markdown-body" :style="imageDisplayStyle" v-html="renderedHtml" />
+    </div>
+
+    <div v-else class="preview-pane__surface preview-pane__surface--typst">
+      <div v-if="store.typst.status === 'compiling' && !hasTypstPreview" class="preview-pane__placeholder">
+        <TLoading size="medium" text="Typst compiling..." />
+      </div>
+      <div v-else-if="hasTypstPreview" class="typst-preview">
+        <div class="typst-preview__canvas" v-html="store.typst.svgContent" />
+      </div>
+      <TEmpty v-else :description="t('preview.noTypstOutput')" />
+    </div>
+
+    <TDialog
+      v-model:visible="store.typst.debugVisible"
+      :header="t('preview.typstDebug')"
+      width="980px"
+      destroy-on-close
+      :confirm-btn="null"
+      :cancel-btn="null"
+    >
+      <div class="typst-debug">
+        <div class="typst-debug__header">
+          <div class="typst-debug__meta">
+            <div><strong>{{ t('preview.debugStatus') }}:</strong> {{ statusLabel }}</div>
+            <div><strong>{{ t('preview.currentTemplate') }}:</strong> {{ t(currentTemplate.labelKey) }}</div>
+            <div><strong>{{ t('preview.compiledAt') }}:</strong> {{ compiledAtText }}</div>
+          </div>
+          <TSpace>
+            <TButton size="small" variant="outline" @click="store.clearTypstError">
+              {{ t('preview.clearErrors') }}
+            </TButton>
+            <TButton size="small" variant="outline" @click="debugSourceExpanded = !debugSourceExpanded">
+              {{ debugSourceExpanded ? t('preview.collapseSource') : t('preview.expandSource') }}
+            </TButton>
+            <TButton size="small" theme="primary" @click="copyGeneratedSource">
+              {{ t('preview.copySource') }}
+            </TButton>
+          </TSpace>
+        </div>
+
+        <div class="typst-debug__diagnostics">
+          <h4>{{ t('preview.diagnosticsTitle') }}</h4>
+          <pre class="typst-debug__runtime">{{ runtimeDebugLines.join('\n') }}</pre>
+          <TEmpty v-if="normalizedDiagnostics.length === 0" :description="t('preview.noDiagnostics')" />
+          <div v-else class="typst-debug__diagnostic-list">
+            <div
+              v-for="item in normalizedDiagnostics"
+              :key="item.id"
+              class="typst-debug__diagnostic-item"
+            >
+              <div class="typst-debug__diagnostic-head">
+                <TTag :theme="item.theme" variant="light">{{ item.title }}</TTag>
+                <span class="typst-debug__diagnostic-text">{{ item.text }}</span>
+              </div>
+              <pre v-if="item.detail.length > 0" class="typst-debug__diagnostic-detail">{{ item.detail }}</pre>
+            </div>
           </div>
         </div>
+
+        <div v-if="debugSourceExpanded" class="typst-debug__source">
+          <div class="typst-debug__source-title">{{ t('preview.generatedSource') }}</div>
+          <TTextarea :value="store.typst.generatedSource" readonly autosize="{ minRows: 18, maxRows: 30 }" />
+        </div>
       </div>
-    </div>
-
-    <div class="preview-pane__measure" aria-hidden="true">
-      <div
-        id="journal-print-root"
-        ref="measureRootRef"
-        class="journal-page"
-        :data-paper="store.exportSetting.paperSize"
-        :style="articleStyle"
-      >
-        <header class="journal-page-header-static" aria-hidden="true">
-          <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
-          <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
-        </header>
-
-        <article class="journal-article">
-          <header class="journal-front">
-            <h1 class="journal-title">{{ store.metadata.title }}</h1>
-            <h2 v-if="store.metadata.subtitle" class="journal-subtitle">
-              {{ store.metadata.subtitle }}
-            </h2>
-
-            <div class="journal-authors" v-html="authorLineHtml" />
-
-            <div class="journal-affiliations">
-              <p v-for="line in affiliationLines" :key="line">{{ line }}</p>
-            </div>
-
-            <p v-if="correspondingAuthorLine" class="journal-corresponding-author">
-              {{ correspondingAuthorLine }}
-            </p>
-
-            <div v-if="store.metadata.fundings.length > 0" class="journal-funding">
-              <strong>{{ t('preview.fundings') }}：</strong>
-              <span>{{ store.metadata.fundings.map((item) => item.text).join('；') }}</span>
-            </div>
-
-            <section class="journal-abstract">
-              <h3>{{ t('preview.abstract') }}</h3>
-              <p>{{ store.metadata.abstract }}</p>
-            </section>
-
-            <section class="journal-keywords">
-              <strong>{{ t('preview.keywords') }}:</strong>
-              <span>{{ keywordLine }}</span>
-            </section>
-          </header>
-
-          <section class="journal-body">
-            <div class="markdown-body" :lang="store.locale" v-html="renderedBodyHtml" />
-          </section>
-        </article>
-      </div>
-    </div>
-  </section>
+    </TDialog>
+  </div>
 </template>

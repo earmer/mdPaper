@@ -1,6 +1,9 @@
 export type ThemeMode = 'light' | 'dark';
 export type PaperSize = 'A4' | 'Letter';
 export type LocaleType = 'zh-CN' | 'en-US';
+export type PreviewSurface = 'typst' | 'html-fallback';
+export type TypstTemplateId = 'rubbish-default' | 'rubbish-compact';
+export type TypstCompileStatus = 'idle' | 'compiling' | 'ready' | 'error';
 
 export interface Affiliation {
   id: string;
@@ -53,6 +56,7 @@ export interface ImageOption {
   enableCompression: boolean;
   quality: number;
   maxWidth: number;
+  maxDisplayPercent: number;
 }
 
 export type ImageAssetMap = Record<string, string>;
@@ -67,6 +71,35 @@ export interface ExportSetting {
   headerFooter: HeaderFooterSetting;
 }
 
+export interface TypstDiagnostic {
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  path?: string;
+  range?: string;
+  package?: string;
+  detail?: string;
+  source: 'typst' | 'citation';
+}
+
+export interface CitationEntry {
+  key: string;
+  order: number;
+  content: string;
+}
+
+export interface TypstRuntimeState {
+  status: TypstCompileStatus;
+  errorMessage: string;
+  diagnostics: TypstDiagnostic[];
+  generatedSource: string;
+  svgContent: string;
+  pdfBlobUrl: string;
+  compiledAt: string;
+  templateId: TypstTemplateId;
+  virtualProjectSummary: string[];
+  debugVisible: boolean;
+}
+
 export interface ManuscriptDraft {
   locale: string;
   theme: ThemeMode;
@@ -76,6 +109,8 @@ export interface ManuscriptDraft {
   exportSetting: ExportSetting;
   imageOption: ImageOption;
   imageAssets: ImageAssetMap;
+  previewSurface?: PreviewSurface;
+  typstTemplateId?: TypstTemplateId;
 }
 
 export interface ExportPayload {
