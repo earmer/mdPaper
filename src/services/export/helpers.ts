@@ -54,7 +54,11 @@ export const buildPageLabel = (
   page: number,
   total: number,
 ): string => {
-  void locale;
   void total;
+
+  if (locale === 'zh-CN') {
+    return `第 ${page} 页`;
+  }
+
   return `Page ${page}`;
 };

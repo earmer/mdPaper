@@ -81,7 +81,6 @@ const handleExport = async (): Promise<void> => {
       metadata: store.metadata,
       exportSetting: store.exportSetting,
     });
-    MessagePlugin.success(t('export.success'));
     dialogVisible.value = false;
   } catch (error) {
     const reason = error instanceof Error ? error.message : t('errors.generic');

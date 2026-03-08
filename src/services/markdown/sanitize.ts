@@ -8,5 +8,13 @@ export const sanitizeHtml = (rawHtml: string): string =>
       svg: true,
       svgFilters: true,
     },
-    ADD_ATTR: ['style', 'class', 'xmlns', 'encoding'],
+    ADD_ATTR: [
+      'style',
+      'class',
+      'xmlns',
+      'encoding',
+      'data-figure-number',
+      'data-table-number',
+      'data-equation-number',
+    ],
   });
