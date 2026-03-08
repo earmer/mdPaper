@@ -7,6 +7,7 @@ import { useTypstCompilerSession } from '@/composables/useTypstCompilerSession';
 import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
+import { getPerfSummaryLines, measurePerf } from '@/utils/perfProfiler';
 import {
   getTypstTemplateDefinition,
   typstTemplates,
@@ -24,15 +25,18 @@ const { cancelScheduledCompile, scheduleCompile } = useTypstCompilerSession();
 const debugSourceExpanded = ref(true);
 
 const manuscriptDocument = computed(() =>
-  buildManuscriptDocument(store.metadata, store.content),
+  measurePerf('preview.document', () => buildManuscriptDocument(store.metadata, store.content)),
 );
 
 const renderedBodyHtml = computed(() =>
-  renderMarkdown(manuscriptDocument.value.source, {
-    normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
-    resolveImageSrc: (source) => store.resolveImageAsset(source),
-    citationRegistry: manuscriptDocument.value.citations,
-  }),
+  measurePerf(
+    'preview.renderMarkdown',
+    () => renderMarkdown(manuscriptDocument.value.source, {
+      normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
+      resolveImageSrc: (source) => store.resolveImageAsset(source),
+      citationRegistry: manuscriptDocument.value.citations,
+    }),
+  ),
 );
 
 const imageDisplayStyle = computed(() => ({
@@ -139,39 +143,34 @@ const statusLabel = computed(() => {
   return t('preview.statusIdle');
 });
 
-const statusTheme = computed(() => {
-  if (store.typst.compileStatus === 'compiling') {
-    return 'warning';
-  }
-  if (store.typst.compileStatus === 'ready') {
-    return 'success';
-  }
-  if (store.typst.compileStatus === 'error') {
-    return 'danger';
-  }
-  return 'default';
-});
-
-const artifactLabel = computed(() => {
-  if (store.typst.artifactStatus === 'fresh') {
-    return t('preview.artifactFresh');
-  }
-  if (store.typst.artifactStatus === 'stale') {
-    return t('preview.artifactStale');
-  }
-  return '';
-});
-
-const artifactTheme = computed(() =>
-  store.typst.artifactStatus === 'stale' ? 'warning' : 'success',
+const isSyncing = computed(() =>
+  store.typst.compileStatus === 'compiling'
+  || store.typst.compileStatus === 'error'
+  || store.typst.artifactStatus === 'stale',
 );
 
-const errorSummary = computed(() => {
-  if (store.typst.errorMessage.length > 0) {
-    return store.typst.errorMessage;
+const syncStatusLabel = computed(() =>
+  isSyncing.value ? t('preview.syncPending') : t('preview.syncReady'),
+);
+
+const syncStatusIcon = computed(() =>
+  isSyncing.value ? 'mdi:loading' : 'mdi:check-circle-outline',
+);
+
+const syncStatusDetail = computed(() => {
+  if (store.typst.artifactStatus === 'stale' && store.typst.lastSuccessfulCompiledAt.length > 0) {
+    return t('preview.showingLastSuccessful', {
+      time: lastSuccessfulCompiledAtText.value,
+    });
   }
 
-  return store.typst.diagnostics.find((item) => item.severity === 'error')?.message ?? '';
+  if (store.typst.compileStatus === 'ready' && store.typst.lastSuccessfulCompiledAt.length > 0) {
+    return t('preview.syncReadyDetail', {
+      time: lastSuccessfulCompiledAtText.value,
+    });
+  }
+
+  return '';
 });
 
 const normalizedDiagnostics = computed(() =>
@@ -189,10 +188,11 @@ const normalizedDiagnostics = computed(() =>
 const runtimeDebugLines = computed(() => [
   `compileStatus=${store.typst.compileStatus}`,
   `artifactStatus=${store.typst.artifactStatus}`,
-  `template=${store.typst.templateId}`,
+  `template=${store.typstTemplateId}`,
   `lastAttempt=${store.typst.lastAttemptedCompiledAt || 'n/a'}`,
   `lastSuccess=${store.typst.lastSuccessfulCompiledAt || 'n/a'}`,
   `previewSurface=${store.previewSurface}`,
+  ...getPerfSummaryLines(),
   ...store.typst.virtualProjectSummary,
 ]);
 
@@ -207,15 +207,9 @@ const linkedImageAlertText = computed(() => {
   return t('preview.linkedImageUnsupported', { count });
 });
 
-const staleAlertText = computed(() => {
-  if (store.typst.artifactStatus !== 'stale' || store.typst.lastSuccessfulCompiledAt.length === 0) {
-    return '';
-  }
-
-  return t('preview.showingLastSuccessful', {
-    time: lastSuccessfulCompiledAtText.value,
-  });
-});
+const showSyncPlaceholder = computed(() =>
+  !hasTypstPreview.value && isSyncing.value,
+);
 
 const handleTemplateChange = (value: string | number): void => {
   if (value === 'rubbish-default' || value === 'rubbish-compact') {
@@ -261,14 +255,6 @@ onBeforeUnmount(() => {
       <div class="preview-pane__toolbar-main">
         <div class="preview-pane__title-wrap">
           <h3 class="preview-pane__title">{{ t('preview.title') }}</h3>
-          <TTag :theme="statusTheme" variant="light">{{ statusLabel }}</TTag>
-          <TTag
-            v-if="artifactLabel.length > 0"
-            :theme="artifactTheme"
-            variant="light"
-          >
-            {{ artifactLabel }}
-          </TTag>
         </div>
         <p class="preview-pane__subtitle">{{ t(currentTemplate.descriptionKey) }}</p>
       </div>
@@ -302,26 +288,17 @@ onBeforeUnmount(() => {
     <div class="preview-pane__meta-row">
       <span>{{ t('preview.currentTemplate') }}: {{ t(currentTemplate.labelKey) }}</span>
       <span>{{ t('preview.compiledAt') }}: {{ compiledAtText }}</span>
+      <span class="preview-pane__sync-status" :data-state="isSyncing ? 'syncing' : 'ready'">
+        <Icon :icon="syncStatusIcon" class="preview-pane__sync-icon" />
+        <span>{{ syncStatusLabel }}</span>
+      </span>
+      <span v-if="syncStatusDetail.length > 0" class="preview-pane__sync-detail">{{ syncStatusDetail }}</span>
     </div>
 
     <TAlert
       v-if="linkedImageAlertText.length > 0"
       theme="warning"
       :message="linkedImageAlertText"
-      class="preview-pane__alert"
-    />
-
-    <TAlert
-      v-if="staleAlertText.length > 0"
-      theme="warning"
-      :message="staleAlertText"
-      class="preview-pane__alert"
-    />
-
-    <TAlert
-      v-if="store.typst.compileStatus === 'error' && errorSummary.length > 0"
-      theme="warning"
-      :message="errorSummary"
       class="preview-pane__alert"
     />
 
@@ -338,23 +315,13 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="preview-pane__surface preview-pane__surface--typst">
-      <div v-if="store.typst.compileStatus === 'compiling' && !hasTypstPreview" class="preview-pane__placeholder">
-        <TLoading size="medium" :text="statusLabel" />
+      <div v-if="showSyncPlaceholder" class="preview-pane__placeholder">
+        <div class="preview-pane__placeholder-status">
+          <Icon :icon="syncStatusIcon" class="preview-pane__placeholder-icon" />
+          <span>{{ syncStatusLabel }}</span>
+        </div>
       </div>
       <div v-else-if="hasTypstPreview" class="typst-preview">
-        <div class="typst-preview__meta">
-          <TTag v-if="store.typst.compileStatus === 'compiling'" theme="warning" variant="light">
-            {{ t('preview.statusCompiling') }}
-          </TTag>
-          <TTag
-            v-if="store.typst.artifactStatus === 'stale'"
-            class="preview-pane__stale-tag"
-            theme="warning"
-            variant="light"
-          >
-            {{ t('preview.artifactStale') }}
-          </TTag>
-        </div>
         <div class="typst-preview__canvas" v-html="store.typst.svgContent" />
       </div>
       <TEmpty v-else :description="t('preview.noTypstOutput')" />

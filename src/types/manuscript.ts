@@ -101,7 +101,6 @@ export interface TypstRuntimeState {
   pdfBlobUrl: string;
   lastAttemptedCompiledAt: string;
   lastSuccessfulCompiledAt: string;
-  templateId: TypstTemplateId;
   virtualProjectSummary: string[];
   debugVisible: boolean;
 }

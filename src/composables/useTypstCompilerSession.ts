@@ -64,7 +64,6 @@ const hasFreshArtifact = (
   store.typst.compileStatus === 'ready'
   && store.typst.artifactStatus === 'fresh'
   && store.typst.pdfBlobUrl.length > 0
-  && store.typst.templateId === store.typstTemplateId
   && store.typst.generatedSource === context.source
   && lastSuccessfulCompileKey === context.key
 );
@@ -118,7 +117,6 @@ const runCompile = async (
         diagnostics: result.diagnostics,
         generatedSource: result.generatedSource,
         compiledAt: result.compiledAt,
-        templateId: result.templateId,
         virtualProjectSummary: result.virtualProjectSummary,
       });
     } catch (error) {
@@ -139,7 +137,6 @@ const runCompile = async (
         ],
         generatedSource: context.source,
         compiledAt: new Date().toISOString(),
-        templateId: store.typstTemplateId,
         virtualProjectSummary: [],
       });
     } finally {

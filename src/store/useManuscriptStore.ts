@@ -74,7 +74,6 @@ interface TypstSuccessPayload {
   svgContent: string;
   pdfBlobUrl: string;
   compiledAt: string;
-  templateId: TypstTemplateId;
   virtualProjectSummary: string[];
 }
 
@@ -83,7 +82,6 @@ interface TypstFailurePayload {
   diagnostics: TypstDiagnostic[];
   generatedSource: string;
   compiledAt: string;
-  templateId: TypstTemplateId;
   virtualProjectSummary: string[];
 }
 
@@ -91,7 +89,7 @@ interface LegacyDraftShape extends Partial<ManuscriptDraft> {
   imageOption?: Partial<ImageAssetProcessOption & ImageDisplayOption>;
 }
 
-const createEmptyTypstState = (templateId: TypstTemplateId): TypstRuntimeState => ({
+const createEmptyTypstState = (): TypstRuntimeState => ({
   compileStatus: 'idle',
   artifactStatus: 'empty',
   errorMessage: '',
@@ -101,10 +99,25 @@ const createEmptyTypstState = (templateId: TypstTemplateId): TypstRuntimeState =
   pdfBlobUrl: '',
   lastAttemptedCompiledAt: '',
   lastSuccessfulCompiledAt: '',
-  templateId,
   virtualProjectSummary: [],
   debugVisible: false,
 });
+
+const deriveArtifactStatus = (
+  mode: TypstRuntimeState['artifactStatus'] | 'retain',
+  svgContent: string,
+  currentStatus?: TypstRuntimeState['artifactStatus'],
+): TypstRuntimeState['artifactStatus'] => {
+  if (svgContent.length === 0) {
+    return 'empty';
+  }
+
+  if (mode === 'retain') {
+    return currentStatus === undefined || currentStatus === 'empty' ? 'fresh' : currentStatus;
+  }
+
+  return mode;
+};
 
 const applyLockedExportLayout = (setting: ExportSetting): void => {
   setting.fontSize = LOCKED_EXPORT_LAYOUT.fontSize;
@@ -225,7 +238,7 @@ const cloneSample = (): StoreState => {
     previewSurface: data.previewSurface ?? 'typst',
     typstTemplateId,
     editorCursorLine: 1,
-    typst: createEmptyTypstState(typstTemplateId),
+    typst: createEmptyTypstState(),
   };
 };
 
@@ -267,7 +280,6 @@ export const useManuscriptStore = defineStore('manuscript', {
     },
     setTypstTemplate(templateId: TypstTemplateId): void {
       this.typstTemplateId = templateId;
-      this.typst.templateId = templateId;
     },
     setEditorCursorLine(line: number): void {
       if (!Number.isFinite(line)) {
@@ -284,24 +296,25 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.typst.errorMessage = '';
       this.typst.diagnostics = this.typst.diagnostics.filter((item) => item.source !== 'typst');
       this.typst.compileStatus = this.typst.svgContent.length > 0 ? 'ready' : 'idle';
-      this.typst.artifactStatus = this.typst.svgContent.length > 0
-        ? this.typst.artifactStatus
-        : 'empty';
+      this.typst.artifactStatus = deriveArtifactStatus(
+        'retain',
+        this.typst.svgContent,
+        this.typst.artifactStatus,
+      );
     },
     setTypstPending(source: string): void {
       this.typst.compileStatus = 'compiling';
-      this.typst.artifactStatus = this.typst.svgContent.length > 0 ? 'stale' : 'empty';
+      this.typst.artifactStatus = deriveArtifactStatus('stale', this.typst.svgContent);
       this.typst.generatedSource = source;
       this.typst.errorMessage = '';
       this.typst.diagnostics = [];
-      this.typst.templateId = this.typstTemplateId;
       this.typst.virtualProjectSummary = [];
     },
     setTypstSuccess(payload: TypstSuccessPayload): void {
       this.typst = {
         ...this.typst,
         compileStatus: 'ready',
-        artifactStatus: payload.svgContent.length > 0 ? 'fresh' : 'empty',
+        artifactStatus: deriveArtifactStatus('fresh', payload.svgContent),
         errorMessage: payload.errorMessage,
         diagnostics: payload.diagnostics,
         generatedSource: payload.generatedSource,
@@ -309,7 +322,6 @@ export const useManuscriptStore = defineStore('manuscript', {
         pdfBlobUrl: payload.pdfBlobUrl,
         lastAttemptedCompiledAt: payload.compiledAt,
         lastSuccessfulCompiledAt: payload.compiledAt,
-        templateId: payload.templateId,
         virtualProjectSummary: payload.virtualProjectSummary,
       };
     },
@@ -317,18 +329,17 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.typst = {
         ...this.typst,
         compileStatus: 'error',
-        artifactStatus: this.typst.svgContent.length > 0 ? 'stale' : 'empty',
+        artifactStatus: deriveArtifactStatus('stale', this.typst.svgContent),
         errorMessage: payload.errorMessage,
         diagnostics: payload.diagnostics,
         generatedSource: payload.generatedSource,
         lastAttemptedCompiledAt: payload.compiledAt,
-        templateId: payload.templateId,
         virtualProjectSummary: payload.virtualProjectSummary,
       };
     },
     resetTypstState(): void {
       releaseTypstState(this.typst);
-      this.typst = createEmptyTypstState(this.typstTemplateId);
+      this.typst = createEmptyTypstState();
     },
     addAuthor(): void {
       const firstAffiliation = this.metadata.affiliations[0]?.id;
@@ -431,7 +442,7 @@ export const useManuscriptStore = defineStore('manuscript', {
         this.previewSurface = parsed.previewSurface ?? 'typst';
         this.typstTemplateId = parsed.typstTemplateId ?? 'rubbish-default';
         this.editorCursorLine = 1;
-        this.typst = createEmptyTypstState(this.typstTemplateId);
+        this.typst = createEmptyTypstState();
         return true;
       } catch {
         return false;

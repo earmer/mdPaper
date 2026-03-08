@@ -37,8 +37,8 @@ const buildTemplateWrapper = (
 
 ${body}`;
 
-export const typstTemplates: TypstTemplateDefinition[] = [
-  {
+const templateDefinitionMap: Record<TypstTemplateId, TypstTemplateDefinition> = {
+  'rubbish-default': {
     id: 'rubbish-default',
     labelKey: 'preview.templateRubbishDefault',
     descriptionKey: 'preview.templateRubbishDefaultDesc',
@@ -46,7 +46,7 @@ export const typstTemplates: TypstTemplateDefinition[] = [
     frontMatterPath: sharedFrontMatterPath,
     render: (body: string) => buildTemplateWrapper('/@/templates/rubbish-default.typ', sharedFrontMatterPath, body),
   },
-  {
+  'rubbish-compact': {
     id: 'rubbish-compact',
     labelKey: 'preview.templateRubbishCompact',
     descriptionKey: 'preview.templateRubbishCompactDesc',
@@ -54,11 +54,13 @@ export const typstTemplates: TypstTemplateDefinition[] = [
     frontMatterPath: sharedFrontMatterPath,
     render: (body: string) => buildTemplateWrapper('/@/templates/rubbish-compact.typ', sharedFrontMatterPath, body),
   },
-];
+};
+
+export const typstTemplates: TypstTemplateDefinition[] = Object.values(templateDefinitionMap);
 
 export const getTypstTemplateDefinition = (
   id: TypstTemplateId,
-): TypstTemplateDefinition => typstTemplates.find((template) => template.id === id) ?? typstTemplates[0]!;
+): TypstTemplateDefinition => templateDefinitionMap[id];
 
 export const getTypstTemplateSources = (id: TypstTemplateId): TemplateSourceMap => ({
   ...templateSourceMaps[id],

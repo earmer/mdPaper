@@ -3,6 +3,7 @@ import { buildManuscriptDocument } from '@/services/document/model';
 import { compileTypstArtifacts } from '@/services/typst/runtime';
 import { serializeDocumentToTypst } from '@/services/typst/serialize';
 import { createPdfBlobUrl } from '@/services/typst/blobUrl';
+import { measurePerf, measurePerfAsync } from '@/utils/perfProfiler';
 import type {
   ImageAssetMap,
   ManuscriptMeta,
@@ -115,9 +116,18 @@ export const prepareTypstManuscript = (
   content: string,
   templateId: TypstTemplateId,
 ): PreparedTypstManuscript => {
-  const document = buildManuscriptDocument(metadata, content);
-  const source = serializeDocumentToTypst(document, templateId);
-  const diagnostics = collectCitationDiagnostics(document.normalizedSource, document.citations);
+  const document = measurePerf(
+    'typst.prepare.document',
+    () => buildManuscriptDocument(metadata, content),
+  );
+  const source = measurePerf(
+    'typst.prepare.serialize',
+    () => serializeDocumentToTypst(document, templateId),
+  );
+  const diagnostics = measurePerf(
+    'typst.prepare.citations',
+    () => collectCitationDiagnostics(document.normalizedSource, document.citations),
+  );
 
   return {
     diagnostics,
@@ -131,8 +141,14 @@ export const compileManuscriptTypst = async (
   templateId: TypstTemplateId,
   imageAssets: ImageAssetMap,
 ): Promise<CompiledTypstManuscript> => {
-  const prepared = prepareTypstManuscript(metadata, content, templateId);
-  const result = await compileTypstArtifacts(prepared.source, templateId, imageAssets);
+  const prepared = measurePerf(
+    'typst.prepare.total',
+    () => prepareTypstManuscript(metadata, content, templateId),
+  );
+  const result = await measurePerfAsync(
+    'typst.compile.total',
+    async () => await compileTypstArtifacts(prepared.source, templateId, imageAssets),
+  );
   const diagnostics = enrichTypstDiagnostics(
     [...prepared.diagnostics, ...result.diagnostics],
     result.errorMessage,

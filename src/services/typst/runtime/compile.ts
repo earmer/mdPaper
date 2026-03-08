@@ -1,4 +1,5 @@
 import type { ImageAssetMap, TypstDiagnostic, TypstTemplateId } from '@/types/manuscript';
+import { measurePerfAsync } from '@/utils/perfProfiler';
 import {
   ensureBrowserWasmImporters,
   getCompiler,
@@ -88,9 +89,12 @@ export const compileTypstArtifacts = async (
 ): Promise<TypstCompileArtifacts> => withCompileQueue(async () => {
   ensureBrowserWasmImporters();
   const compiler = await getCompiler();
-  await compiler.reset();
+  await measurePerfAsync('typst.runtime.reset', async () => await compiler.reset());
 
-  const project = await buildTypstVirtualProject(source, templateId, imageAssets);
+  const project = await measurePerfAsync(
+    'typst.runtime.project',
+    async () => await buildTypstVirtualProject(source, templateId, imageAssets),
+  );
   const virtualProjectSummary = buildVirtualProjectSummary(templateId, project);
   const virtualFsDetail = virtualProjectSummary.join('\n');
   syncCompilerProject(compiler, project);
@@ -109,11 +113,14 @@ export const compileTypstArtifacts = async (
   }
 
   try {
-    const pdfResult = await compiler.compile({
-      mainFilePath: project.mainFilePath,
-      format: 'pdf',
-      diagnostics: 'full',
-    });
+    const pdfResult = await measurePerfAsync(
+      'typst.runtime.pdf',
+      async () => await compiler.compile({
+        mainFilePath: project.mainFilePath,
+        format: 'pdf',
+        diagnostics: 'full',
+      }),
+    );
     diagnostics.push(...normalizeDiagnostics(pdfResult.diagnostics));
     pdfData = pdfResult.result ?? null;
     if (pdfResult.result === undefined) {
@@ -126,15 +133,18 @@ export const compileTypstArtifacts = async (
   }
 
   try {
-    svgContent = await snippet.svg({
-      mainFilePath: project.mainFilePath,
-      data_selection: {
-        body: true,
-        defs: true,
-        css: true,
-        js: false,
-      },
-    });
+    svgContent = await measurePerfAsync(
+      'typst.runtime.svg',
+      async () => await snippet.svg({
+        mainFilePath: project.mainFilePath,
+        data_selection: {
+          body: true,
+          defs: true,
+          css: true,
+          js: false,
+        },
+      }),
+    );
   } catch (error) {
     const detail = stringifyUnknownError(error);
     if (errorMessage.length === 0) {

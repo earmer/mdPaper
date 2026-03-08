@@ -7,6 +7,7 @@ import { fileToDataUrl } from '@/services/image/imageToBase64';
 import { normalizeImageAssetBlob } from '@/services/image/normalizeAsset';
 import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
+import { measurePerf } from '@/utils/perfProfiler';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { defaultImageAlt, toInlineImageMarkdown } from '@/utils/format';
 
@@ -80,15 +81,18 @@ const toolbarActions = computed<ToolbarAction[]>(() => [
 ]);
 
 const fullscreenDocument = computed(() =>
-  buildManuscriptDocument(store.metadata, store.content),
+  measurePerf('editor.fullscreen.document', () => buildManuscriptDocument(store.metadata, store.content)),
 );
 
 const renderedFullscreenHtml = computed(() =>
-  renderMarkdown(fullscreenDocument.value.source, {
-    normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
-    resolveImageSrc: (source) => store.resolveImageAsset(source),
-    citationRegistry: fullscreenDocument.value.citations,
-  }),
+  measurePerf(
+    'editor.fullscreen.renderMarkdown',
+    () => renderMarkdown(fullscreenDocument.value.source, {
+      normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
+      resolveImageSrc: (source) => store.resolveImageAsset(source),
+      citationRegistry: fullscreenDocument.value.citations,
+    }),
+  ),
 );
 
 const imageDisplayStyle = computed(() => ({
