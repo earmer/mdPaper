@@ -3,6 +3,7 @@ import { computed, nextTick, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
+import { fileToDataUrl } from '@/services/image/imageToBase64';
 import { normalizeImageAssetBlob } from '@/services/image/normalizeAsset';
 import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
@@ -91,7 +92,7 @@ const renderedFullscreenHtml = computed(() =>
 );
 
 const imageDisplayStyle = computed(() => ({
-  '--md-figure-max-width': `${store.imageOption.maxDisplayPercent}%`,
+  '--md-figure-max-width': `${store.imageDisplayOption.maxDisplayPercent}%`,
 }));
 
 const getTextareaFromRoot = (root: HTMLElement | null): HTMLTextAreaElement | null =>
@@ -167,16 +168,17 @@ const openFullscreenEditor = async (): Promise<void> => {
 };
 
 const buildImageMarkdown = async (file: File): Promise<string> => {
-  const normalized = await normalizeImageAssetBlob(
-    file,
-    {
-      quality: store.imageOption.quality,
-      maxWidth: store.imageOption.maxWidth,
-    },
-    file.name,
-  );
+  const dataUrl = store.imageProcessOption.enableCompression
+    ? (await normalizeImageAssetBlob(
+      file,
+      {
+        quality: store.imageProcessOption.quality,
+        maxWidth: store.imageProcessOption.maxWidth,
+      },
+      file.name,
+    )).dataUrl
+    : await fileToDataUrl(file);
 
-  const dataUrl = normalized.dataUrl;
   const alt = defaultImageAlt();
   const assetSource = store.addImageAsset(dataUrl);
   return `${toInlineImageMarkdown(alt, assetSource)}\n`;
@@ -489,14 +491,14 @@ const onDragLeave = (event: DragEvent): void => {
           class="markdown-editor__image-options"
         >
           <TSpace align="center">
-            <TSwitch v-model="store.imageOption.enableCompression" />
+            <TSwitch v-model="store.imageProcessOption.enableCompression" />
             <span>{{ t('form.imageCompressionEnable') }}</span>
           </TSpace>
 
           <div class="markdown-editor__image-option-row">
             <span class="markdown-editor__image-option-label">{{ t('form.imageQuality') }}</span>
             <TInputNumber
-              v-model="store.imageOption.quality"
+              v-model="store.imageProcessOption.quality"
               class="markdown-editor__image-option-input"
               :min="0.2"
               :max="1"
@@ -508,7 +510,7 @@ const onDragLeave = (event: DragEvent): void => {
           <div class="markdown-editor__image-option-row">
             <span class="markdown-editor__image-option-label">{{ t('form.imageMaxWidth') }}</span>
             <TInputNumber
-              v-model="store.imageOption.maxWidth"
+              v-model="store.imageProcessOption.maxWidth"
               class="markdown-editor__image-option-input"
               :min="320"
               :max="5000"
@@ -519,7 +521,7 @@ const onDragLeave = (event: DragEvent): void => {
           <div class="markdown-editor__image-option-row">
             <span class="markdown-editor__image-option-label">{{ t('form.imageDisplaySize') }}</span>
             <TInputNumber
-              v-model="store.imageOption.maxDisplayPercent"
+              v-model="store.imageDisplayOption.maxDisplayPercent"
               class="markdown-editor__image-option-input"
               :min="10"
               :max="100"

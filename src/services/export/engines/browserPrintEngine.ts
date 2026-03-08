@@ -1,5 +1,5 @@
 import { Previewer, type PagedStylesheet } from 'pagedjs';
-import type { ExportPayload } from '@/types/manuscript';
+import type { BrowserPrintPayload } from '@/services/export/types';
 import {
   EXPORT_ROOT_ID,
   waitForExportRenderReady,
@@ -17,8 +17,6 @@ import { nextAnimationFrame } from '@/utils/dom';
 
 const BROWSER_PRINT_BODY_CLASS = 'browser-print-exporting';
 const BROWSER_PRINT_ROOT_CLASS = 'journal-export-root journal-export-root--browser';
-const BROWSER_PREVIEW_ROOT_ID = 'journal-preview-pagination-root';
-const BROWSER_PREVIEW_ROOT_CLASS = 'journal-export-root journal-export-root--preview';
 const BROWSER_PRINT_MEASURE_CLASS = 'journal-print-source';
 const BROWSER_PRINT_PAGES_CLASS = 'journal-print-pages';
 const BROWSER_PRINT_HEADER_CLASS = 'journal-print-running-header';
@@ -40,15 +38,6 @@ interface BrowserPrintContextOptions {
   rootId?: string;
   rootClass?: string;
   clearExistingRoot?: boolean;
-}
-
-export interface BrowserPreviewPageSnapshot {
-  html: string;
-}
-
-export interface BrowserPreviewRenderSnapshot {
-  pages: BrowserPreviewPageSnapshot[];
-  stylesText: string;
 }
 
 interface PagedPageHandle {
@@ -76,15 +65,12 @@ interface InternalPreviewer extends Previewer {
 
 interface RenderedPagedDocument {
   dispose: () => void;
-  stylesText: string;
 }
-
-let browserPreviewRenderId = 0;
 
 const toPrintTitle = (fileName: string): string =>
   fileName.replace(/\.pdf$/iu, '').trim() || 'mdPaper';
 
-const buildPagedStylesheet = (payload: ExportPayload): PagedStylesheet => ({
+const buildPagedStylesheet = (payload: BrowserPrintPayload): PagedStylesheet => ({
   [`${window.location.href}#mdpaper-browser-print`]: `
     @page {
       size: ${getPaperCssSize(payload.exportSetting.paperSize)};
@@ -107,10 +93,10 @@ const buildPagedStylesheet = (payload: ExportPayload): PagedStylesheet => ({
   `,
 });
 
-const getPaperHeightMm = (paperSize: ExportPayload['exportSetting']['paperSize']): number =>
+const getPaperHeightMm = (paperSize: BrowserPrintPayload['exportSetting']['paperSize']): number =>
   paperSize === 'Letter' ? 279.4 : 297;
 
-const getPageContentHeightPx = (payload: ExportPayload): number => {
+const getPageContentHeightPx = (payload: BrowserPrintPayload): number => {
   const paperHeightMm = getPaperHeightMm(payload.exportSetting.paperSize);
   return Math.max(
     0,
@@ -127,7 +113,7 @@ const stripKatexMathMlForExport = (root: HTMLElement): void => {
 
 const scaleDisplayMathBlocks = (
   root: HTMLElement,
-  payload: ExportPayload,
+  payload: BrowserPrintPayload,
 ): void => {
   const maxContentHeightPx = getPageContentHeightPx(payload);
   const blocks = Array.from(root.querySelectorAll<HTMLElement>('.katex-display-block'));
@@ -276,7 +262,7 @@ const createRunningFooter = (
 };
 
 const injectRunningChrome = (
-  payload: ExportPayload,
+  payload: BrowserPrintPayload,
   pagesRoot: HTMLElement,
   totalPages: number,
 ): void => {
@@ -318,7 +304,7 @@ const injectRunningChrome = (
 };
 
 const createBrowserPrintContext = (
-  payload: ExportPayload,
+  payload: BrowserPrintPayload,
   options: BrowserPrintContextOptions = {},
 ): BrowserPrintContext => {
   const rootId = options.rootId ?? EXPORT_ROOT_ID;
@@ -399,24 +385,8 @@ const destroyPagedPreviewer = (previewer: Previewer | null | undefined): void =>
   } catch {}
 };
 
-const collectPagedPreviewStyles = (previewer: Previewer): string => {
-  const internalPreviewer = previewer as InternalPreviewer;
-  const polisher = internalPreviewer.polisher;
-  if (polisher === undefined) {
-    return '';
-  }
-
-  return [
-    polisher.base?.textContent ?? '',
-    polisher.styleEl?.textContent ?? '',
-    ...(polisher.inserted?.map((styleElement) => styleElement.textContent ?? '') ?? []),
-  ]
-    .join('\n')
-    .trim();
-};
-
 const renderPagedDocument = async (
-  payload: ExportPayload,
+  payload: BrowserPrintPayload,
   context: BrowserPrintContext,
 ): Promise<RenderedPagedDocument> => {
   await waitForExportRenderReady(context.measurePage);
@@ -454,43 +424,10 @@ const renderPagedDocument = async (
 
     return {
       dispose,
-      stylesText: collectPagedPreviewStyles(previewer),
     };
   } catch (error) {
     dispose();
     throw error;
-  }
-};
-
-const snapshotPreviewPages = (pagesRoot: HTMLElement): BrowserPreviewPageSnapshot[] =>
-  Array.from(pagesRoot.querySelectorAll<HTMLElement>('.pagedjs_page')).map((page) => {
-    const clone = page.cloneNode(true) as HTMLElement;
-    clone.removeAttribute('id');
-    return {
-      html: clone.outerHTML,
-    };
-  });
-
-export const renderBrowserPreviewPages = async (
-  payload: ExportPayload,
-): Promise<BrowserPreviewRenderSnapshot> => {
-  let renderedDocument: RenderedPagedDocument | null = null;
-  const context = createBrowserPrintContext(payload, {
-    rootId: `${BROWSER_PREVIEW_ROOT_ID}-${browserPreviewRenderId += 1}`,
-    rootClass: BROWSER_PREVIEW_ROOT_CLASS,
-    clearExistingRoot: false,
-  });
-
-  try {
-    await nextAnimationFrame();
-    renderedDocument = await renderPagedDocument(payload, context);
-    return {
-      pages: snapshotPreviewPages(context.pages),
-      stylesText: renderedDocument.stylesText,
-    };
-  } finally {
-    renderedDocument?.dispose();
-    context.dispose();
   }
 };
 
@@ -539,7 +476,7 @@ const printCurrentWindow = async (fileName: string): Promise<void> => {
 };
 
 export const exportByBrowserPrintPdf = async (
-  payload: ExportPayload,
+  payload: BrowserPrintPayload,
   fileName: string,
 ): Promise<void> => {
   document.body.classList.add(BROWSER_PRINT_BODY_CLASS);

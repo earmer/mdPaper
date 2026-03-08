@@ -1,5 +1,8 @@
-import { exportByCanvas } from '@/services/export/engines/canvasEngine';
-import type { ExportPayload } from '@/types/manuscript';
+import { exportByBrowserPrintPdf } from '@/services/export/engines/browserPrintEngine';
+import type {
+  BrowserPrintPayload,
+  ExportFilePayload,
+} from '@/services/export/types';
 import { buildExportFileName } from '@/utils/format';
 
 const triggerDownload = (blobUrl: string, fileName: string): void => {
@@ -9,7 +12,7 @@ const triggerDownload = (blobUrl: string, fileName: string): void => {
   link.click();
 };
 
-export const buildPdfFileName = (payload: Pick<ExportPayload, 'metadata' | 'locale'>): string =>
+export const buildPdfFileName = (payload: ExportFilePayload): string =>
   buildExportFileName(
     payload.metadata.title,
     payload.locale === 'zh-CN' ? '论文' : 'manuscript',
@@ -17,7 +20,7 @@ export const buildPdfFileName = (payload: Pick<ExportPayload, 'metadata' | 'loca
 
 export const exportTypstPdf = async (
   blobUrl: string,
-  payload: Pick<ExportPayload, 'metadata' | 'locale'>,
+  payload: ExportFilePayload,
 ): Promise<void> => {
   if (blobUrl.length === 0) {
     throw new Error('Missing Typst PDF artifact');
@@ -26,6 +29,6 @@ export const exportTypstPdf = async (
   triggerDownload(blobUrl, buildPdfFileName(payload));
 };
 
-export const exportLegacyPdf = async (payload: ExportPayload): Promise<void> => {
-  await exportByCanvas(payload, buildPdfFileName(payload));
+export const exportLegacyPdf = async (payload: BrowserPrintPayload): Promise<void> => {
+  await exportByBrowserPrintPdf(payload, buildPdfFileName(payload));
 };

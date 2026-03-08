@@ -3,32 +3,31 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
+import { useTypstCompilerSession } from '@/composables/useTypstCompilerSession';
+import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { buildManuscriptDocument } from '@/services/document/model';
 import { renderMarkdown } from '@/services/markdown/md';
-import {
-  compileManuscriptTypst,
-  prepareTypstManuscript,
-} from '@/services/typst/compileManuscript';
 import {
   getTypstTemplateDefinition,
   typstTemplates,
 } from '@/services/typst/templates';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import type { PreviewSurface, TypstTemplateId } from '@/types/manuscript';
-
-const COMPILE_DEBOUNCE_MS = 450;
+import {
+  formatAffiliationLine,
+  formatAuthorAffiliation,
+} from '@/utils/format';
 
 const { t } = useI18n();
 const store = useManuscriptStore();
+const { cancelScheduledCompile, scheduleCompile } = useTypstCompilerSession();
 const debugSourceExpanded = ref(true);
-let compileTimer: number | null = null;
-let compileTaskId = 0;
 
 const manuscriptDocument = computed(() =>
   buildManuscriptDocument(store.metadata, store.content),
 );
 
-const renderedHtml = computed(() =>
+const renderedBodyHtml = computed(() =>
   renderMarkdown(manuscriptDocument.value.source, {
     normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
     resolveImageSrc: (source) => store.resolveImageAsset(source),
@@ -37,8 +36,59 @@ const renderedHtml = computed(() =>
 );
 
 const imageDisplayStyle = computed(() => ({
-  '--md-figure-max-width': `${store.imageOption.maxDisplayPercent}%`,
+  '--md-figure-max-width': `${store.imageDisplayOption.maxDisplayPercent}%`,
 }));
+
+const articleStyle = computed(() => ({
+  '--body-font-size': `${store.exportSetting.fontSize}pt`,
+  '--body-line-height': `${store.exportSetting.lineHeight}`,
+  '--body-paragraph-indent': `${store.exportSetting.paragraphIndent}em`,
+  '--paper-margin-top': `${store.exportSetting.margins.top}mm`,
+  '--paper-margin-right': `${store.exportSetting.margins.right}mm`,
+  '--paper-margin-bottom': `${store.exportSetting.margins.bottom}mm`,
+  '--paper-margin-left': `${store.exportSetting.margins.left}mm`,
+  '--paper-size': store.exportSetting.paperSize,
+}));
+
+const authorLineHtml = computed(() =>
+  formatAuthorAffiliation(
+    store.metadata.authors,
+    store.metadata.affiliations,
+    store.metadata.correspondingAuthorId,
+  ).join(store.locale === 'zh-CN' ? '， ' : ', '),
+);
+
+const affiliationLines = computed(() =>
+  store.metadata.affiliations.map((item, index) => formatAffiliationLine(item, index)),
+);
+
+const correspondingAuthorLine = computed(() => {
+  const selectedAuthor = store.metadata.authors.find(
+    (author) => author.id === store.metadata.correspondingAuthorId,
+  );
+  if (selectedAuthor === undefined) {
+    return '';
+  }
+
+  const displayName = selectedAuthor.name.trim() || selectedAuthor.nameEn.trim();
+  if (displayName.length === 0) {
+    return '';
+  }
+
+  const contact = store.metadata.correspondingAuthorContact.trim();
+  if (contact.length === 0) {
+    return `* ${t('preview.correspondingAuthor')}: ${displayName}`;
+  }
+
+  return `* ${t('preview.correspondingAuthor')}: ${displayName} (${contact})`;
+});
+
+const keywordLine = computed(() =>
+  store.metadata.keywords
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .join(store.locale === 'zh-CN' ? '；' : '; '),
+);
 
 const templateOptions = computed(() =>
   typstTemplates.map((template) => ({
@@ -47,43 +97,74 @@ const templateOptions = computed(() =>
   })),
 );
 
-const currentTemplate = computed(
-  () => getTypstTemplateDefinition(store.typstTemplateId),
+const currentTemplate = computed(() =>
+  getTypstTemplateDefinition(store.typstTemplateId),
 );
 
-const compiledAtText = computed(() => {
-  if (store.typst.compiledAt.length === 0) {
+const debugVisible = computed({
+  get: () => store.typst.debugVisible,
+  set: (value: boolean) => store.setTypstDebugVisible(value),
+});
+
+const formatTimestamp = (value: string): string => {
+  if (value.length === 0) {
     return '—';
   }
 
-  return new Date(store.typst.compiledAt).toLocaleString(store.locale);
+  return new Date(value).toLocaleString(store.locale);
+};
+
+const compiledAtText = computed(() => {
+  if (store.typst.lastSuccessfulCompiledAt.length > 0) {
+    return formatTimestamp(store.typst.lastSuccessfulCompiledAt);
+  }
+
+  return formatTimestamp(store.typst.lastAttemptedCompiledAt);
 });
 
+const lastSuccessfulCompiledAtText = computed(() =>
+  formatTimestamp(store.typst.lastSuccessfulCompiledAt),
+);
+
 const statusLabel = computed(() => {
-  if (store.typst.status === 'compiling') {
+  if (store.typst.compileStatus === 'compiling') {
     return t('preview.statusCompiling');
   }
-  if (store.typst.status === 'ready') {
+  if (store.typst.compileStatus === 'ready') {
     return t('preview.statusReady');
   }
-  if (store.typst.status === 'error') {
+  if (store.typst.compileStatus === 'error') {
     return t('preview.statusError');
   }
   return t('preview.statusIdle');
 });
 
 const statusTheme = computed(() => {
-  if (store.typst.status === 'compiling') {
+  if (store.typst.compileStatus === 'compiling') {
     return 'warning';
   }
-  if (store.typst.status === 'ready') {
+  if (store.typst.compileStatus === 'ready') {
     return 'success';
   }
-  if (store.typst.status === 'error') {
+  if (store.typst.compileStatus === 'error') {
     return 'danger';
   }
   return 'default';
 });
+
+const artifactLabel = computed(() => {
+  if (store.typst.artifactStatus === 'fresh') {
+    return t('preview.artifactFresh');
+  }
+  if (store.typst.artifactStatus === 'stale') {
+    return t('preview.artifactStale');
+  }
+  return '';
+});
+
+const artifactTheme = computed(() =>
+  store.typst.artifactStatus === 'stale' ? 'warning' : 'success',
+);
 
 const errorSummary = computed(() => {
   if (store.typst.errorMessage.length > 0) {
@@ -98,20 +179,25 @@ const normalizedDiagnostics = computed(() =>
     id: `${item.source}-${index}`,
     title: item.source === 'typst' ? t('preview.typstDiagnostic') : t('preview.referenceDiagnostic'),
     theme: item.severity === 'error' ? 'danger' : item.severity === 'warning' ? 'warning' : 'default',
-    text: [item.message, item.path, item.range].filter((part) => typeof part === 'string' && part.length > 0).join(' · '),
+    text: [item.message, item.path, item.range]
+      .filter((part) => typeof part === 'string' && part.length > 0)
+      .join(' · '),
     detail: item.detail ?? '',
   })),
 );
 
 const runtimeDebugLines = computed(() => [
-  `status=${store.typst.status}`,
+  `compileStatus=${store.typst.compileStatus}`,
+  `artifactStatus=${store.typst.artifactStatus}`,
   `template=${store.typst.templateId}`,
-  `compiledAt=${store.typst.compiledAt || 'n/a'}`,
+  `lastAttempt=${store.typst.lastAttemptedCompiledAt || 'n/a'}`,
+  `lastSuccess=${store.typst.lastSuccessfulCompiledAt || 'n/a'}`,
   `previewSurface=${store.previewSurface}`,
   ...store.typst.virtualProjectSummary,
 ]);
 
 const hasTypstPreview = computed(() => store.typst.svgContent.length > 0);
+
 const linkedImageAlertText = computed(() => {
   const count = store.remoteImageUrls.length;
   if (count === 0) {
@@ -121,6 +207,15 @@ const linkedImageAlertText = computed(() => {
   return t('preview.linkedImageUnsupported', { count });
 });
 
+const staleAlertText = computed(() => {
+  if (store.typst.artifactStatus !== 'stale' || store.typst.lastSuccessfulCompiledAt.length === 0) {
+    return '';
+  }
+
+  return t('preview.showingLastSuccessful', {
+    time: lastSuccessfulCompiledAtText.value,
+  });
+});
 
 const handleTemplateChange = (value: string | number): void => {
   if (value === 'rubbish-default' || value === 'rubbish-compact') {
@@ -147,66 +242,8 @@ const copyGeneratedSource = async (): Promise<void> => {
   }
 };
 
-const triggerCompile = async (): Promise<void> => {
-  const taskId = ++compileTaskId;
-  const prepared = prepareTypstManuscript(
-    store.metadata,
-    store.content,
-    store.typstTemplateId,
-    store.imageOption,
-  );
-  store.setTypstCompiling(prepared.source);
-
-  try {
-    const result = await compileManuscriptTypst(
-      store.metadata,
-      store.content,
-      store.typstTemplateId,
-      store.imageAssets,
-      store.imageOption,
-    );
-
-    if (taskId !== compileTaskId) {
-      return;
-    }
-
-    store.setTypstArtifacts(result);
-  } catch (error) {
-    if (taskId !== compileTaskId) {
-      return;
-    }
-
-    store.setTypstArtifacts({
-      status: 'error',
-      errorMessage: error instanceof Error ? error.message : t('errors.generic'),
-      diagnostics: [{
-        severity: 'error',
-        message: error instanceof Error ? error.message : t('errors.generic'),
-        detail: error instanceof Error && error.stack !== undefined ? error.stack : '',
-        source: 'typst',
-      }],
-      generatedSource: store.typst.generatedSource,
-      svgContent: '',
-      pdfBlobUrl: '',
-      compiledAt: new Date().toISOString(),
-      templateId: store.typstTemplateId,
-      virtualProjectSummary: [],
-    });
-  }
-};
-
-const scheduleCompile = (): void => {
-  if (compileTimer !== null) {
-    window.clearTimeout(compileTimer);
-  }
-
-  compileTimer = window.setTimeout(() => {
-    void triggerCompile();
-  }, COMPILE_DEBOUNCE_MS);
-};
-
 watch(
-  () => [store.metadata, store.content, store.typstTemplateId],
+  () => [store.metadata, store.content, store.typstTemplateId, store.imageAssets],
   () => {
     scheduleCompile();
   },
@@ -214,9 +251,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  if (compileTimer !== null) {
-    window.clearTimeout(compileTimer);
-  }
+  cancelScheduledCompile();
 });
 </script>
 
@@ -227,6 +262,13 @@ onBeforeUnmount(() => {
         <div class="preview-pane__title-wrap">
           <h3 class="preview-pane__title">{{ t('preview.title') }}</h3>
           <TTag :theme="statusTheme" variant="light">{{ statusLabel }}</TTag>
+          <TTag
+            v-if="artifactLabel.length > 0"
+            :theme="artifactTheme"
+            variant="light"
+          >
+            {{ artifactLabel }}
+          </TTag>
         </div>
         <p class="preview-pane__subtitle">{{ t(currentTemplate.descriptionKey) }}</p>
       </div>
@@ -248,7 +290,7 @@ onBeforeUnmount(() => {
           <TRadioButton value="typst">{{ t('preview.modeTypstPreview') }}</TRadioButton>
           <TRadioButton value="html-fallback">{{ t('preview.modeHtmlFallback') }}</TRadioButton>
         </TRadioGroup>
-        <TButton size="small" variant="outline" @click="store.openTypstDebug">
+        <TButton size="small" variant="outline" @click="debugVisible = true">
           <template #icon>
             <Icon icon="mdi:bug-outline" />
           </template>
@@ -270,7 +312,14 @@ onBeforeUnmount(() => {
     />
 
     <TAlert
-      v-else-if="store.typst.status === 'error' && errorSummary.length > 0"
+      v-if="staleAlertText.length > 0"
+      theme="warning"
+      :message="staleAlertText"
+      class="preview-pane__alert"
+    />
+
+    <TAlert
+      v-if="store.typst.compileStatus === 'error' && errorSummary.length > 0"
       theme="warning"
       :message="errorSummary"
       class="preview-pane__alert"
@@ -280,21 +329,91 @@ onBeforeUnmount(() => {
       <div class="preview-pane__fallback-note">
         <TTag theme="warning" variant="light">{{ t('preview.htmlFallbackTag') }}</TTag>
       </div>
-      <article class="preview-pane__fallback markdown-body" :style="imageDisplayStyle" v-html="renderedHtml" />
+      <article
+        class="preview-pane__fallback markdown-body"
+        :style="imageDisplayStyle"
+        :lang="store.locale"
+        v-html="renderedBodyHtml"
+      />
     </div>
 
     <div v-else class="preview-pane__surface preview-pane__surface--typst">
-      <div v-if="store.typst.status === 'compiling' && !hasTypstPreview" class="preview-pane__placeholder">
-        <TLoading size="medium" text="Typst compiling..." />
+      <div v-if="store.typst.compileStatus === 'compiling' && !hasTypstPreview" class="preview-pane__placeholder">
+        <TLoading size="medium" :text="statusLabel" />
       </div>
       <div v-else-if="hasTypstPreview" class="typst-preview">
+        <div class="typst-preview__meta">
+          <TTag v-if="store.typst.compileStatus === 'compiling'" theme="warning" variant="light">
+            {{ t('preview.statusCompiling') }}
+          </TTag>
+          <TTag
+            v-if="store.typst.artifactStatus === 'stale'"
+            class="preview-pane__stale-tag"
+            theme="warning"
+            variant="light"
+          >
+            {{ t('preview.artifactStale') }}
+          </TTag>
+        </div>
         <div class="typst-preview__canvas" v-html="store.typst.svgContent" />
       </div>
       <TEmpty v-else :description="t('preview.noTypstOutput')" />
     </div>
 
+    <div class="preview-pane__legacy-root" aria-hidden="true">
+      <div
+        id="journal-print-root"
+        class="journal-page"
+        :data-paper="store.exportSetting.paperSize"
+        :style="[articleStyle, imageDisplayStyle]"
+      >
+        <header class="journal-page-header-static" aria-hidden="true">
+          <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
+          <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
+        </header>
+
+        <article class="journal-article">
+          <header class="journal-front">
+            <h1 class="journal-title">{{ store.metadata.title }}</h1>
+            <h2 v-if="store.metadata.subtitle" class="journal-subtitle">
+              {{ store.metadata.subtitle }}
+            </h2>
+
+            <div class="journal-authors" v-html="authorLineHtml" />
+
+            <div class="journal-affiliations">
+              <p v-for="line in affiliationLines" :key="line">{{ line }}</p>
+            </div>
+
+            <p v-if="correspondingAuthorLine" class="journal-corresponding-author">
+              {{ correspondingAuthorLine }}
+            </p>
+
+            <div v-if="store.metadata.fundings.length > 0" class="journal-funding">
+              <strong>{{ t('preview.fundings') }}：</strong>
+              <span>{{ store.metadata.fundings.map((item) => item.text).join('；') }}</span>
+            </div>
+
+            <section class="journal-abstract">
+              <h3>{{ t('preview.abstract') }}</h3>
+              <p>{{ store.metadata.abstract }}</p>
+            </section>
+
+            <section class="journal-keywords">
+              <strong>{{ t('preview.keywords') }}:</strong>
+              <span>{{ keywordLine }}</span>
+            </section>
+          </header>
+
+          <section class="journal-body">
+            <div class="markdown-body" :lang="store.locale" v-html="renderedBodyHtml" />
+          </section>
+        </article>
+      </div>
+    </div>
+
     <TDialog
-      v-model:visible="store.typst.debugVisible"
+      v-model:visible="debugVisible"
       :header="t('preview.typstDebug')"
       width="980px"
       destroy-on-close
@@ -309,7 +428,7 @@ onBeforeUnmount(() => {
             <div><strong>{{ t('preview.compiledAt') }}:</strong> {{ compiledAtText }}</div>
           </div>
           <TSpace>
-            <TButton size="small" variant="outline" @click="store.clearTypstError">
+            <TButton size="small" variant="outline" @click="store.clearTypstDiagnostics()">
               {{ t('preview.clearErrors') }}
             </TButton>
             <TButton size="small" variant="outline" @click="debugSourceExpanded = !debugSourceExpanded">
@@ -342,7 +461,11 @@ onBeforeUnmount(() => {
 
         <div v-if="debugSourceExpanded" class="typst-debug__source">
           <div class="typst-debug__source-title">{{ t('preview.generatedSource') }}</div>
-          <TTextarea :value="store.typst.generatedSource" readonly autosize="{ minRows: 18, maxRows: 30 }" />
+          <TTextarea
+            :value="store.typst.generatedSource"
+            readonly
+            :autosize="{ minRows: 18, maxRows: 30 }"
+          />
         </div>
       </div>
     </TDialog>

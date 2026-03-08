@@ -133,10 +133,12 @@ $$
       showPageNumber: true,
     },
   },
-  imageOption: {
+  imageProcessOption: {
     enableCompression: true,
     quality: 0.82,
     maxWidth: 1800,
+  },
+  imageDisplayOption: {
     maxDisplayPercent: 100,
   },
   imageAssets: {},

@@ -1,13 +1,16 @@
 import { defineStore } from 'pinia';
 import { sampleManuscript } from '@/data/sampleManuscript';
+import { revokePdfBlobUrl } from '@/services/typst/blobUrl';
 import type {
   Affiliation,
   Author,
   ExportSetting,
   FundingItem,
   ImageAssetMap,
-  ImageOption,
+  ImageAssetProcessOption,
+  ImageDisplayOption,
   LocaleType,
+  ManuscriptDraft,
   ManuscriptMeta,
   PreviewSurface,
   ThemeMode,
@@ -22,7 +25,6 @@ import {
   parseImageAssetId,
   toImageAssetSrc,
 } from '@/utils/imageAsset';
-import { revokePdfBlobUrl } from '@/services/typst/runtime';
 
 const DRAFT_KEY = 'mdpaper-draft-v1';
 const LEGACY_DRAFT_KEYS = ['journal-pdf-draft-v1'];
@@ -39,6 +41,16 @@ const LOCKED_EXPORT_LAYOUT = {
   },
 } as const;
 
+const DEFAULT_IMAGE_PROCESS_OPTION: ImageAssetProcessOption = {
+  enableCompression: true,
+  quality: 0.82,
+  maxWidth: 1800,
+};
+
+const DEFAULT_IMAGE_DISPLAY_OPTION: ImageDisplayOption = {
+  maxDisplayPercent: 100,
+};
+
 interface StoreState {
   locale: LocaleType;
   theme: ThemeMode;
@@ -46,7 +58,8 @@ interface StoreState {
   metadata: ManuscriptMeta;
   content: string;
   exportSetting: ExportSetting;
-  imageOption: ImageOption;
+  imageProcessOption: ImageAssetProcessOption;
+  imageDisplayOption: ImageDisplayOption;
   imageAssets: ImageAssetMap;
   previewSurface: PreviewSurface;
   typstTemplateId: TypstTemplateId;
@@ -54,14 +67,40 @@ interface StoreState {
   typst: TypstRuntimeState;
 }
 
+interface TypstSuccessPayload {
+  errorMessage: string;
+  diagnostics: TypstDiagnostic[];
+  generatedSource: string;
+  svgContent: string;
+  pdfBlobUrl: string;
+  compiledAt: string;
+  templateId: TypstTemplateId;
+  virtualProjectSummary: string[];
+}
+
+interface TypstFailurePayload {
+  errorMessage: string;
+  diagnostics: TypstDiagnostic[];
+  generatedSource: string;
+  compiledAt: string;
+  templateId: TypstTemplateId;
+  virtualProjectSummary: string[];
+}
+
+interface LegacyDraftShape extends Partial<ManuscriptDraft> {
+  imageOption?: Partial<ImageAssetProcessOption & ImageDisplayOption>;
+}
+
 const createEmptyTypstState = (templateId: TypstTemplateId): TypstRuntimeState => ({
-  status: 'idle',
+  compileStatus: 'idle',
+  artifactStatus: 'empty',
   errorMessage: '',
   diagnostics: [],
   generatedSource: '',
   svgContent: '',
   pdfBlobUrl: '',
-  compiledAt: '',
+  lastAttemptedCompiledAt: '',
+  lastSuccessfulCompiledAt: '',
   templateId,
   virtualProjectSummary: [],
   debugVisible: false,
@@ -82,6 +121,34 @@ const randomId = (prefix: string): string => {
 
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
+
+const normalizeImageProcessOption = (
+  option: Partial<ImageAssetProcessOption> | undefined,
+  legacyOption?: Partial<ImageAssetProcessOption & ImageDisplayOption>,
+): ImageAssetProcessOption => ({
+  enableCompression: option?.enableCompression ?? legacyOption?.enableCompression ?? DEFAULT_IMAGE_PROCESS_OPTION.enableCompression,
+  quality: typeof option?.quality === 'number'
+    ? option.quality
+    : typeof legacyOption?.quality === 'number'
+      ? legacyOption.quality
+      : DEFAULT_IMAGE_PROCESS_OPTION.quality,
+  maxWidth: typeof option?.maxWidth === 'number'
+    ? option.maxWidth
+    : typeof legacyOption?.maxWidth === 'number'
+      ? legacyOption.maxWidth
+      : DEFAULT_IMAGE_PROCESS_OPTION.maxWidth,
+});
+
+const normalizeImageDisplayOption = (
+  option: Partial<ImageDisplayOption> | undefined,
+  legacyOption?: Partial<ImageAssetProcessOption & ImageDisplayOption>,
+): ImageDisplayOption => ({
+  maxDisplayPercent: typeof option?.maxDisplayPercent === 'number'
+    ? option.maxDisplayPercent
+    : typeof legacyOption?.maxDisplayPercent === 'number'
+      ? legacyOption.maxDisplayPercent
+      : DEFAULT_IMAGE_DISPLAY_OPTION.maxDisplayPercent,
+});
 
 const createEmptyMetadata = (): ManuscriptMeta => ({
   title: '',
@@ -152,7 +219,8 @@ const cloneSample = (): StoreState => {
     metadata: data.metadata,
     content: data.content,
     exportSetting: data.exportSetting,
-    imageOption: data.imageOption,
+    imageProcessOption: normalizeImageProcessOption(data.imageProcessOption),
+    imageDisplayOption: normalizeImageDisplayOption(data.imageDisplayOption),
     imageAssets: normalizeImageAssetMap(data.imageAssets),
     previewSurface: data.previewSurface ?? 'typst',
     typstTemplateId,
@@ -169,9 +237,6 @@ export const useManuscriptStore = defineStore('manuscript', {
   state: (): StoreState => cloneSample(),
   getters: {
     remoteImageUrls: (state): string[] => parseRemoteImageUrls(state.content),
-    hasRemoteImages(): boolean {
-      return this.remoteImageUrls.length > 0;
-    },
   },
   actions: {
     setLocale(locale: LocaleType): void {
@@ -189,10 +254,8 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.metadata = data.metadata;
       this.content = data.content;
       this.exportSetting = data.exportSetting;
-      this.imageOption = {
-        ...data.imageOption,
-        maxDisplayPercent: data.imageOption.maxDisplayPercent ?? 100,
-      };
+      this.imageProcessOption = data.imageProcessOption;
+      this.imageDisplayOption = data.imageDisplayOption;
       this.imageAssets = data.imageAssets;
       this.previewSurface = data.previewSurface;
       this.typstTemplateId = data.typstTemplateId;
@@ -214,55 +277,54 @@ export const useManuscriptStore = defineStore('manuscript', {
 
       this.editorCursorLine = Math.max(1, Math.floor(line));
     },
-    openTypstDebug(): void {
-      this.typst.debugVisible = true;
+    setTypstDebugVisible(visible: boolean): void {
+      this.typst.debugVisible = visible;
     },
-    closeTypstDebug(): void {
-      this.typst.debugVisible = false;
-    },
-    clearTypstError(): void {
+    clearTypstDiagnostics(): void {
       this.typst.errorMessage = '';
       this.typst.diagnostics = this.typst.diagnostics.filter((item) => item.source !== 'typst');
-      if (this.typst.status === 'error') {
-        this.typst.status = this.typst.svgContent.length > 0 ? 'ready' : 'idle';
-      }
+      this.typst.compileStatus = this.typst.svgContent.length > 0 ? 'ready' : 'idle';
+      this.typst.artifactStatus = this.typst.svgContent.length > 0
+        ? this.typst.artifactStatus
+        : 'empty';
     },
-    setTypstCompiling(source: string): void {
-      this.typst.status = 'compiling';
+    setTypstPending(source: string): void {
+      this.typst.compileStatus = 'compiling';
+      this.typst.artifactStatus = this.typst.svgContent.length > 0 ? 'stale' : 'empty';
       this.typst.generatedSource = source;
       this.typst.errorMessage = '';
       this.typst.diagnostics = [];
       this.typst.templateId = this.typstTemplateId;
+      this.typst.virtualProjectSummary = [];
     },
-    setTypstArtifacts(payload: {
-      status: TypstRuntimeState['status'];
-      errorMessage: string;
-      diagnostics: TypstDiagnostic[];
-      generatedSource: string;
-      svgContent: string;
-      pdfBlobUrl: string;
-      compiledAt: string;
-      templateId: TypstTemplateId;
-      virtualProjectSummary: string[];
-    }): void {
-      const shouldReplacePdf = payload.pdfBlobUrl.length > 0 && this.typst.pdfBlobUrl !== payload.pdfBlobUrl;
-      if (shouldReplacePdf) {
-        revokePdfBlobUrl(this.typst.pdfBlobUrl);
-      }
-
-      this.typst.status = payload.status;
-      this.typst.errorMessage = payload.errorMessage;
-      this.typst.diagnostics = payload.diagnostics;
-      this.typst.generatedSource = payload.generatedSource;
-      if (payload.svgContent.length > 0) {
-        this.typst.svgContent = payload.svgContent;
-      }
-      if (payload.pdfBlobUrl.length > 0) {
-        this.typst.pdfBlobUrl = payload.pdfBlobUrl;
-      }
-      this.typst.compiledAt = payload.compiledAt;
-      this.typst.templateId = payload.templateId;
-      this.typst.virtualProjectSummary = payload.virtualProjectSummary;
+    setTypstSuccess(payload: TypstSuccessPayload): void {
+      this.typst = {
+        ...this.typst,
+        compileStatus: 'ready',
+        artifactStatus: payload.svgContent.length > 0 ? 'fresh' : 'empty',
+        errorMessage: payload.errorMessage,
+        diagnostics: payload.diagnostics,
+        generatedSource: payload.generatedSource,
+        svgContent: payload.svgContent,
+        pdfBlobUrl: payload.pdfBlobUrl,
+        lastAttemptedCompiledAt: payload.compiledAt,
+        lastSuccessfulCompiledAt: payload.compiledAt,
+        templateId: payload.templateId,
+        virtualProjectSummary: payload.virtualProjectSummary,
+      };
+    },
+    setTypstFailure(payload: TypstFailurePayload): void {
+      this.typst = {
+        ...this.typst,
+        compileStatus: 'error',
+        artifactStatus: this.typst.svgContent.length > 0 ? 'stale' : 'empty',
+        errorMessage: payload.errorMessage,
+        diagnostics: payload.diagnostics,
+        generatedSource: payload.generatedSource,
+        lastAttemptedCompiledAt: payload.compiledAt,
+        templateId: payload.templateId,
+        virtualProjectSummary: payload.virtualProjectSummary,
+      };
     },
     resetTypstState(): void {
       releaseTypstState(this.typst);
@@ -314,14 +376,15 @@ export const useManuscriptStore = defineStore('manuscript', {
       this.metadata.fundings = this.metadata.fundings.filter((item) => item.id !== fundingId);
     },
     saveDraft(): void {
-      const draft = {
+      const draft: ManuscriptDraft = {
         locale: this.locale,
         theme: this.theme,
         enableDraftPersistence: this.enableDraftPersistence,
         metadata: this.metadata,
         content: this.content,
         exportSetting: this.exportSetting,
-        imageOption: this.imageOption,
+        imageProcessOption: this.imageProcessOption,
+        imageDisplayOption: this.imageDisplayOption,
         imageAssets: this.imageAssets,
         previewSurface: this.previewSurface,
         typstTemplateId: this.typstTemplateId,
@@ -345,12 +408,11 @@ export const useManuscriptStore = defineStore('manuscript', {
       }
 
       try {
-        const parsed = JSON.parse(raw) as Partial<StoreState>;
+        const parsed = JSON.parse(raw) as LegacyDraftShape;
         if (
-          parsed.metadata === undefined ||
-          parsed.content === undefined ||
-          parsed.exportSetting === undefined ||
-          parsed.imageOption === undefined
+          parsed.metadata === undefined
+          || parsed.content === undefined
+          || parsed.exportSetting === undefined
         ) {
           return false;
         }
@@ -363,10 +425,8 @@ export const useManuscriptStore = defineStore('manuscript', {
         this.content = parsed.content;
         this.exportSetting = parsed.exportSetting;
         applyLockedExportLayout(this.exportSetting);
-        this.imageOption = {
-          ...parsed.imageOption,
-          maxDisplayPercent: parsed.imageOption.maxDisplayPercent ?? 100,
-        };
+        this.imageProcessOption = normalizeImageProcessOption(parsed.imageProcessOption, parsed.imageOption);
+        this.imageDisplayOption = normalizeImageDisplayOption(parsed.imageDisplayOption, parsed.imageOption);
         this.imageAssets = normalizeImageAssetMap(parsed.imageAssets);
         this.previewSurface = parsed.previewSurface ?? 'typst';
         this.typstTemplateId = parsed.typstTemplateId ?? 'rubbish-default';

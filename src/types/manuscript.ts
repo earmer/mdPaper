@@ -4,6 +4,7 @@ export type LocaleType = 'zh-CN' | 'en-US';
 export type PreviewSurface = 'typst' | 'html-fallback';
 export type TypstTemplateId = 'rubbish-default' | 'rubbish-compact';
 export type TypstCompileStatus = 'idle' | 'compiling' | 'ready' | 'error';
+export type TypstArtifactStatus = 'empty' | 'fresh' | 'stale';
 
 export interface Affiliation {
   id: string;
@@ -52,10 +53,13 @@ export interface HeaderFooterSetting {
   showPageNumber: boolean;
 }
 
-export interface ImageOption {
+export interface ImageAssetProcessOption {
   enableCompression: boolean;
   quality: number;
   maxWidth: number;
+}
+
+export interface ImageDisplayOption {
   maxDisplayPercent: number;
 }
 
@@ -88,13 +92,15 @@ export interface CitationEntry {
 }
 
 export interface TypstRuntimeState {
-  status: TypstCompileStatus;
+  compileStatus: TypstCompileStatus;
+  artifactStatus: TypstArtifactStatus;
   errorMessage: string;
   diagnostics: TypstDiagnostic[];
   generatedSource: string;
   svgContent: string;
   pdfBlobUrl: string;
-  compiledAt: string;
+  lastAttemptedCompiledAt: string;
+  lastSuccessfulCompiledAt: string;
   templateId: TypstTemplateId;
   virtualProjectSummary: string[];
   debugVisible: boolean;
@@ -107,15 +113,9 @@ export interface ManuscriptDraft {
   metadata: ManuscriptMeta;
   content: string;
   exportSetting: ExportSetting;
-  imageOption: ImageOption;
+  imageProcessOption: ImageAssetProcessOption;
+  imageDisplayOption: ImageDisplayOption;
   imageAssets: ImageAssetMap;
   previewSurface?: PreviewSurface;
   typstTemplateId?: TypstTemplateId;
-}
-
-export interface ExportPayload {
-  metadata: ManuscriptMeta;
-  exportSetting: ExportSetting;
-  locale: string;
-  articleElement: HTMLElement;
 }

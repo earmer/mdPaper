@@ -2,7 +2,7 @@ import {
   PAPER_HEADER_LEFT,
   PAPER_HEADER_RIGHT,
 } from '@/constants/journal';
-import type { ExportPayload } from '@/types/manuscript';
+import type { BrowserPrintPayload } from '@/services/export/types';
 
 const FOOTER_LEFT_TEXT = 'R.U.B.B.I.S.H. Journal — an experimental publication.';
 const FOOTER_RIGHT_TEXT = '© The Author(s)';
@@ -10,7 +10,7 @@ const FOOTER_RIGHT_TEXT = '© The Author(s)';
 export const getPaperCssSize = (paper: 'A4' | 'Letter'): string =>
   paper === 'Letter' ? 'Letter' : 'A4';
 
-export const applyLayoutVars = (payload: ExportPayload): void => {
+export const applyLayoutVars = (payload: BrowserPrintPayload): void => {
   const { exportSetting, articleElement } = payload;
   articleElement.setAttribute('data-paper', exportSetting.paperSize);
   articleElement.style.setProperty('--paper-size', getPaperCssSize(exportSetting.paperSize));
@@ -23,7 +23,7 @@ export const applyLayoutVars = (payload: ExportPayload): void => {
   articleElement.style.setProperty('--body-paragraph-indent', `${exportSetting.paragraphIndent}em`);
 };
 
-export const buildHeaderLeftText = (payload: ExportPayload): string => {
+export const buildHeaderLeftText = (payload: BrowserPrintPayload): string => {
   if (
     !payload.exportSetting.headerFooter.showHeader
     || !payload.exportSetting.headerFooter.showJournalName
@@ -34,7 +34,7 @@ export const buildHeaderLeftText = (payload: ExportPayload): string => {
   return PAPER_HEADER_LEFT;
 };
 
-export const buildHeaderRightText = (payload: ExportPayload): string => {
+export const buildHeaderRightText = (payload: BrowserPrintPayload): string => {
   if (!payload.exportSetting.headerFooter.showHeader) {
     return '';
   }
@@ -42,7 +42,7 @@ export const buildHeaderRightText = (payload: ExportPayload): string => {
   return PAPER_HEADER_RIGHT;
 };
 
-export const buildFooterLeftText = (payload: ExportPayload): string => {
+export const buildFooterLeftText = (payload: BrowserPrintPayload): string => {
   if (!payload.exportSetting.headerFooter.showFooter) {
     return '';
   }
@@ -50,7 +50,7 @@ export const buildFooterLeftText = (payload: ExportPayload): string => {
   return FOOTER_LEFT_TEXT;
 };
 
-export const buildFooterRightText = (payload: ExportPayload): string => {
+export const buildFooterRightText = (payload: BrowserPrintPayload): string => {
   if (
     !payload.exportSetting.headerFooter.showFooter
     || !payload.exportSetting.headerFooter.showCopyright

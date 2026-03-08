@@ -1,13 +1,10 @@
 import { collectCitationDiagnostics } from '@/services/document/citation';
 import { buildManuscriptDocument } from '@/services/document/model';
-import {
-  compileTypstArtifacts,
-  createPdfBlobUrl,
-} from '@/services/typst/runtime';
+import { compileTypstArtifacts } from '@/services/typst/runtime';
 import { serializeDocumentToTypst } from '@/services/typst/serialize';
+import { createPdfBlobUrl } from '@/services/typst/blobUrl';
 import type {
   ImageAssetMap,
-  ImageOption,
   ManuscriptMeta,
   TypstDiagnostic,
   TypstRuntimeState,
@@ -20,7 +17,7 @@ export interface PreparedTypstManuscript {
 }
 
 export interface CompiledTypstManuscript {
-  status: TypstRuntimeState['status'];
+  compileStatus: Extract<TypstRuntimeState['compileStatus'], 'ready' | 'error'>;
   errorMessage: string;
   diagnostics: TypstDiagnostic[];
   generatedSource: string;
@@ -117,10 +114,9 @@ export const prepareTypstManuscript = (
   metadata: ManuscriptMeta,
   content: string,
   templateId: TypstTemplateId,
-  imageOption: ImageOption,
 ): PreparedTypstManuscript => {
   const document = buildManuscriptDocument(metadata, content);
-  const source = serializeDocumentToTypst(document, templateId, imageOption);
+  const source = serializeDocumentToTypst(document, templateId);
   const diagnostics = collectCitationDiagnostics(document.normalizedSource, document.citations);
 
   return {
@@ -134,9 +130,8 @@ export const compileManuscriptTypst = async (
   content: string,
   templateId: TypstTemplateId,
   imageAssets: ImageAssetMap,
-  imageOption: ImageOption,
 ): Promise<CompiledTypstManuscript> => {
-  const prepared = prepareTypstManuscript(metadata, content, templateId, imageOption);
+  const prepared = prepareTypstManuscript(metadata, content, templateId);
   const result = await compileTypstArtifacts(prepared.source, templateId, imageAssets);
   const diagnostics = enrichTypstDiagnostics(
     [...prepared.diagnostics, ...result.diagnostics],
@@ -146,12 +141,12 @@ export const compileManuscriptTypst = async (
   const hasTypstError = diagnostics.some(
     (item) => item.source === 'typst' && item.severity === 'error',
   );
-  const status: TypstRuntimeState['status'] = hasTypstError || result.pdfData === null || result.svgContent.length === 0
+  const compileStatus: CompiledTypstManuscript['compileStatus'] = hasTypstError || result.pdfData === null || result.svgContent.length === 0
     ? 'error'
     : 'ready';
 
   return {
-    status,
+    compileStatus,
     errorMessage: result.errorMessage,
     diagnostics,
     generatedSource: result.generatedSource,

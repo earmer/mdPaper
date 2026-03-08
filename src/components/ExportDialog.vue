@@ -3,8 +3,8 @@ import { computed, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
+import { useTypstCompilerSession } from '@/composables/useTypstCompilerSession';
 import { exportLegacyPdf, exportTypstPdf } from '@/services/export/exportPdf';
-import { compileManuscriptTypst } from '@/services/typst/compileManuscript';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { getPrintRoot } from '@/utils/dom';
 
@@ -18,6 +18,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const store = useManuscriptStore();
+const { ensureFreshTypstArtifact } = useTypstCompilerSession();
 const exportingTypst = ref(false);
 const exportingLegacy = ref(false);
 
@@ -30,25 +31,6 @@ const paperOptions = computed(() => [
   { label: t('export.paperA4'), value: 'A4' },
   { label: t('export.paperLetter'), value: 'Letter' },
 ]);
-
-
-
-const ensureFreshTypstArtifact = async (): Promise<string> => {
-  const result = await compileManuscriptTypst(
-    store.metadata,
-    store.content,
-    store.typstTemplateId,
-    store.imageAssets,
-    store.imageOption,
-  );
-  store.setTypstArtifacts(result);
-
-  if (result.status === 'error' || result.pdfBlobUrl.length === 0) {
-    throw new Error(result.errorMessage || t('export.typstExportFailed'));
-  }
-
-  return result.pdfBlobUrl;
-};
 
 const handleTypstExport = async (): Promise<void> => {
   exportingTypst.value = true;
