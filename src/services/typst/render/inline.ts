@@ -1,5 +1,5 @@
-import type Token from 'markdown-it/lib/token.mjs';
-import type { ManuscriptDocument } from '@/services/document/model';
+import type { PhrasingContent, RootContent } from 'mdast';
+import type { TypstManuscriptDocument } from '@/services/document/typstModel';
 import {
   replaceCitationSyntax,
   stripReferenceMarker,
@@ -9,139 +9,285 @@ import {
   trimParagraph,
 } from '@/services/typst/escape';
 
-const parseInlineImage = (markdown: string): { alt: string; src: string; title: string } | null => {
-  const matched = markdown.match(/^!\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)$/u);
-  if (matched === null) {
-    return null;
-  }
+interface TypstDeleteNode {
+  type: 'delete';
+  children: PhrasingContent[];
+}
 
-  return {
-    alt: (matched[1] ?? '').trim(),
-    src: (matched[2] ?? '').trim(),
-    title: (matched[3] ?? '').trim(),
-  };
+interface TypstFootnoteDefinitionNode {
+  type: 'footnoteDefinition';
+  identifier: string;
+  children: RootContent[];
+}
+
+interface TypstFootnoteReferenceNode {
+  type: 'footnoteReference';
+  identifier: string;
+}
+
+interface TypstImageNode {
+  type: 'image';
+  alt?: string | null;
+  title?: string | null;
+  url: string;
+}
+
+interface TypstInlineCodeNode {
+  type: 'inlineCode';
+  value: string;
+}
+
+interface TypstLinkNode {
+  type: 'link';
+  children: PhrasingContent[];
+  url: string;
+}
+
+interface TypstLiteralNode {
+  type: 'text' | 'html' | 'code';
+  value: string;
+}
+
+interface TypstParentNode {
+  type: 'emphasis' | 'strong';
+  children: PhrasingContent[];
+}
+
+interface InlineRenderOptions {
+  inReferenceSection: boolean;
+  stripLeadingReferenceMarker?: boolean;
+}
+
+export interface TypstRenderContext {
+  document: TypstManuscriptDocument;
+  footnoteDefinitions: Map<string, TypstFootnoteDefinitionNode>;
+  renderedFootnotes: Set<string>;
+}
+
+type PlainTextNode = {
+  type: string;
+  value?: string;
+  alt?: string | null;
+  identifier?: string;
+  children?: PlainTextNode[];
 };
 
-const buildImageBlock = (markdown: string): string => {
-  const image = parseInlineImage(markdown);
-  if (image === null) {
-    return escapeTypstText(markdown);
+const hasChildren = (node: PlainTextNode): node is PlainTextNode & { children: PlainTextNode[] } =>
+  Array.isArray(node.children);
+
+const normalizeInlineText = (value: string): string => value.replace(/\r?\n/gu, ' ');
+
+const renderCitations = (input: string, document: TypstManuscriptDocument): string =>
+  replaceCitationSyntax(input, document.citations, (match) => escapeTypstText(match.label));
+
+const buildImageBlock = (src: string, alt: string, title: string): string => {
+  if (src.trim().length === 0) {
+    return escapeTypstText(alt);
   }
 
-  if (image.src.startsWith('asset://')) {
+  if (src.startsWith('asset://')) {
     return [
       '#figure(',
       '  [Inline image asset omitted in Typst preview/export.],',
-      image.title.length > 0 ? `  caption: [${escapeTypstText(image.title)}],` : '',
+      title.length > 0 ? `  caption: [${escapeTypstText(title)}],` : '',
       ')',
     ].filter((item) => item.length > 0).join('\n');
   }
 
   return [
     '#figure(',
-    `  image(${JSON.stringify(image.src)}),`,
-    image.title.length > 0 ? `  caption: [${escapeTypstText(image.title)}],` : '',
+    `  image(${JSON.stringify(src)}),`,
+    title.length > 0 ? `  caption: [${escapeTypstText(title)}],` : '',
     ')',
   ].filter((item) => item.length > 0).join('\n');
 };
 
-const renderCitations = (input: string, document: ManuscriptDocument): string =>
-  replaceCitationSyntax(input, document.citations, (match) => escapeTypstText(match.label));
+const buildFootnoteLabel = (identifier: string): string => {
+  const sanitized = identifier
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
 
-const renderInlineSequence = (
-  tokens: Token[],
-  document: ManuscriptDocument,
-  inReferenceSection: boolean,
-  startIndex = 0,
-  stopType?: string,
-): { content: string; nextIndex: number } => {
-  let content = '';
-  let index = startIndex;
-
-  while (index < tokens.length) {
-    const token = tokens[index];
-    if (token === undefined) {
-      index += 1;
-      continue;
-    }
-
-    if (stopType !== undefined && token.type === stopType) {
-      return { content, nextIndex: index };
-    }
-
-    if (token.type === 'text') {
-      content += inReferenceSection
-        ? escapeTypstText(stripReferenceMarker(token.content))
-        : renderCitations(escapeTypstText(token.content), document);
-      index += 1;
-      continue;
-    }
-
-    if (token.type === 'softbreak' || token.type === 'hardbreak') {
-      content += ' ';
-      index += 1;
-      continue;
-    }
-
-    if (token.type === 'code_inline') {
-      content += `#raw(${JSON.stringify(token.content)})`;
-      index += 1;
-      continue;
-    }
-
-    if (token.type === 'math_inline') {
-      content += `$${token.content}$`;
-      index += 1;
-      continue;
-    }
-
-    if (token.type === 'image') {
-      const src = token.attrGet('src') ?? '';
-      const alt = token.content.trim();
-      const title = token.attrGet('title') ?? '';
-      content += src.length > 0
-        ? buildImageBlock(`![${alt}](${src}${title.length > 0 ? ` "${title}"` : ''})`)
-        : escapeTypstText(alt);
-      index += 1;
-      continue;
-    }
-
-    if (token.type === 'em_open') {
-      const inner = renderInlineSequence(tokens, document, inReferenceSection, index + 1, 'em_close');
-      content += `#emph[${inner.content}]`;
-      index = inner.nextIndex + 1;
-      continue;
-    }
-
-    if (token.type === 'strong_open') {
-      const inner = renderInlineSequence(tokens, document, inReferenceSection, index + 1, 'strong_close');
-      content += `#strong[${inner.content}]`;
-      index = inner.nextIndex + 1;
-      continue;
-    }
-
-    if (token.type === 'link_open') {
-      const inner = renderInlineSequence(tokens, document, inReferenceSection, index + 1, 'link_close');
-      const href = token.attrGet('href') ?? '';
-      content += `#link(${JSON.stringify(href)})[${inner.content}]`;
-      index = inner.nextIndex + 1;
-      continue;
-    }
-
-    index += 1;
-  }
-
-  return { content, nextIndex: index };
+  return `mdp-fn-${sanitized.length > 0 ? sanitized : 'note'}`;
 };
 
-export const renderInlineTokens = (
-  tokens: Token[] | null | undefined,
-  document: ManuscriptDocument,
-  inReferenceSection: boolean,
+const renderFootnoteContent = (
+  definition: TypstFootnoteDefinitionNode,
+  context: TypstRenderContext,
 ): string => {
-  if (tokens === undefined || tokens === null) {
+  const parts = definition.children
+    .map((child) => {
+      if (child.type === 'paragraph') {
+        return renderInlineNodes(child.children, context, {
+          inReferenceSection: false,
+        });
+      }
+
+      if (child.type === 'code') {
+        const node = child as TypstLiteralNode & { lang?: string | null };
+        return `#raw(block: true, lang: ${JSON.stringify(node.lang?.trim() || 'text')}, ${JSON.stringify(node.value.replace(/\s+$/u, ''))})`;
+      }
+
+      return trimParagraph(extractPlainTextFromNodes([child]));
+    })
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  return parts.join('; ');
+};
+
+const renderTextValue = (
+  value: string,
+  context: TypstRenderContext,
+  options: InlineRenderOptions,
+  stripLeadingReferenceMarker: boolean,
+): string => {
+  let normalized = normalizeInlineText(value);
+  if (stripLeadingReferenceMarker) {
+    normalized = stripReferenceMarker(normalized);
+  }
+
+  const escaped = escapeTypstText(normalized);
+  return options.inReferenceSection ? escaped : renderCitations(escaped, context.document);
+};
+
+const renderFallbackText = (
+  value: string,
+  context: TypstRenderContext,
+  options: InlineRenderOptions,
+  stripLeadingReferenceMarker: boolean,
+): string => renderTextValue(value, context, options, stripLeadingReferenceMarker);
+
+export const extractPlainTextFromNode = (node: PlainTextNode): string => {
+  if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'html' || node.type === 'code') {
+    return normalizeInlineText(node.value ?? '');
+  }
+
+  if (node.type === 'image') {
+    return normalizeInlineText(node.alt ?? '');
+  }
+
+  if (node.type === 'break') {
+    return ' ';
+  }
+
+  if (node.type === 'footnoteReference') {
+    return `[^${node.identifier ?? ''}]`;
+  }
+
+  if (!hasChildren(node)) {
     return '';
   }
 
-  return trimParagraph(renderInlineSequence(tokens, document, inReferenceSection).content);
+  return node.children.map((child) => extractPlainTextFromNode(child)).join('');
+};
+
+export const extractPlainTextFromNodes = (
+  nodes: Array<RootContent | PhrasingContent> | null | undefined,
+): string => {
+  if (nodes === undefined || nodes === null) {
+    return '';
+  }
+
+  return nodes.map((node) => extractPlainTextFromNode(node as PlainTextNode)).join('');
+};
+
+export const renderInlineNodes = (
+  nodes: PhrasingContent[] | null | undefined,
+  context: TypstRenderContext,
+  options: InlineRenderOptions,
+): string => {
+  if (nodes === undefined || nodes === null) {
+    return '';
+  }
+
+  let content = '';
+  let shouldStripReferenceMarker = options.stripLeadingReferenceMarker === true;
+
+  nodes.forEach((node) => {
+    if (node.type === 'text') {
+      content += renderTextValue(node.value, context, options, shouldStripReferenceMarker);
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'inlineCode') {
+      const inlineCode = node as TypstInlineCodeNode;
+      content += `#raw(${JSON.stringify(inlineCode.value)})`;
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'break') {
+      content += ' ';
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'emphasis' || node.type === 'strong') {
+      const parent = node as TypstParentNode;
+      const inner = renderInlineNodes(parent.children, context, {
+        inReferenceSection: options.inReferenceSection,
+      });
+      const command = node.type === 'emphasis' ? 'emph' : 'strong';
+      content += `#${command}[${inner}]`;
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'delete') {
+      const deleted = node as TypstDeleteNode;
+      const inner = renderInlineNodes(deleted.children, context, {
+        inReferenceSection: options.inReferenceSection,
+      });
+      content += `#strike[${inner}]`;
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'link') {
+      const link = node as TypstLinkNode;
+      const inner = renderInlineNodes(link.children, context, {
+        inReferenceSection: options.inReferenceSection,
+      });
+      content += `#link(${JSON.stringify(link.url)})[${inner}]`;
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'image') {
+      const image = node as TypstImageNode;
+      content += buildImageBlock(image.url, (image.alt ?? '').trim(), (image.title ?? '').trim());
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'footnoteReference') {
+      const reference = node as TypstFootnoteReferenceNode;
+      const definition = context.footnoteDefinitions.get(reference.identifier);
+      if (definition === undefined) {
+        content += renderFallbackText(`[^${reference.identifier}]`, context, options, shouldStripReferenceMarker);
+      } else if (context.renderedFootnotes.has(reference.identifier)) {
+        content += `#footnote(<${buildFootnoteLabel(reference.identifier)}>)`;
+      } else {
+        context.renderedFootnotes.add(reference.identifier);
+        content += `#footnote[${renderFootnoteContent(definition, context)}] <${buildFootnoteLabel(reference.identifier)}>`;
+      }
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'html') {
+      const html = node as TypstLiteralNode;
+      content += renderFallbackText(html.value, context, options, shouldStripReferenceMarker);
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    const fallback = extractPlainTextFromNodes([node]);
+    content += renderFallbackText(fallback, context, options, shouldStripReferenceMarker);
+    shouldStripReferenceMarker = false;
+  });
+
+  return trimParagraph(content);
 };

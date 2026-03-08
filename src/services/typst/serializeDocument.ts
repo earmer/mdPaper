@@ -1,11 +1,11 @@
-import type { ManuscriptDocument } from '@/services/document/model';
+import type { TypstManuscriptDocument } from '@/services/document/typstModel';
 import { getTypstTemplateDefinition } from '@/services/typst/templates';
 import { buildFrontMatterCall } from '@/services/typst/render/frontmatter';
 import { renderBody } from '@/services/typst/render/block';
 import type { TypstTemplateId } from '@/types/manuscript';
 
 export const serializeDocumentToTypst = (
-  document: ManuscriptDocument,
+  document: TypstManuscriptDocument,
   templateId: TypstTemplateId,
 ): string => {
   const template = getTypstTemplateDefinition(templateId);

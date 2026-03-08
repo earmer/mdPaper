@@ -1,4 +1,4 @@
-import type { ManuscriptDocument } from '@/services/document/model';
+import type { TypstManuscriptDocument } from '@/services/document/typstModel';
 import {
   stringifyTypstArray,
   stringifyTypstAuthorArray,
@@ -6,7 +6,7 @@ import {
 } from '@/services/typst/escape';
 import { formatAffiliationLine } from '@/utils/format';
 
-export const buildFrontMatterCall = (document: ManuscriptDocument): string => {
+export const buildFrontMatterCall = (document: TypstManuscriptDocument): string => {
   const { metadata } = document;
   const affiliationIndexMap = new Map(metadata.affiliations.map((item, index) => [item.id, index + 1]));
   const authors = metadata.authors.map((author) => {

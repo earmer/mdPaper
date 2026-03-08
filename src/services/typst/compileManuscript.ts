@@ -1,5 +1,5 @@
 import { collectCitationDiagnostics } from '@/services/document/citation';
-import { buildManuscriptDocument } from '@/services/document/model';
+import { buildTypstManuscriptDocument } from '@/services/document/typstModel';
 import { compileTypstArtifacts } from '@/services/typst/runtime';
 import { serializeDocumentToTypst } from '@/services/typst/serialize';
 import { createPdfBlobUrl } from '@/services/typst/blobUrl';
@@ -118,7 +118,7 @@ export const prepareTypstManuscript = (
 ): PreparedTypstManuscript => {
   const document = measurePerf(
     'typst.prepare.document',
-    () => buildManuscriptDocument(metadata, content),
+    () => buildTypstManuscriptDocument(metadata, content),
   );
   const source = measurePerf(
     'typst.prepare.serialize',
