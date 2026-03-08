@@ -137,6 +137,9 @@ $$
     enableCompression: true,
     quality: 0.82,
     maxWidth: 1800,
+    maxDisplayPercent: 100,
   },
   imageAssets: {},
+  previewSurface: 'typst',
+  typstTemplateId: 'rubbish-default',
 };

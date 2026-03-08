@@ -1,55 +1,101 @@
-# mdPaper（纯静态）
+# mdPaper
 
-`mdPaper` 是一个基于 **Vue 3 + TypeScript + Vite + TDesign Vue Next** 的纯前端期刊排版工具。用户填写期刊元信息（作者、单位、通讯作者、联系方式、基金、摘要、关键词等）并输入 Markdown 正文后，可实时预览最终版式，并导出期刊风格 PDF。
+`mdPaper` 是一个基于 Vue 3、TypeScript、Vite 与 TDesign Vue Next 的浏览器端学术排版工具。当前版本采用双预览职责分离方案：**全屏编辑时使用 HTML 预览提供即时编辑反馈，常规右侧主预览使用 Typst SVG 提供接近最终排版结果的版式预览**；默认导出路径为 **Typst PDF**，旧截图导出仅保留为兼容模式。
 
-## 功能特性
+## 当前能力
 
-- 纯静态：无后端 API、无云函数，全部在浏览器完成。
-- Markdown 渲染：基于 `markdown-it`，支持标题、列表、引用、表格、链接、代码块、图片。
-- 数学公式：支持 `$...$` 与 `$$...$$`，由 KaTeX 渲染。
-- 期刊模块：标题、作者/单位/通讯作者、基金、摘要、关键词自动排版。
-- 标题编号：支持 `## / ### / ####` 自动编号为 `1 / 1.1 / 1.1.1`（附录可保留 `Appendix I`）。
-- 图片与公式：Markdown 图片的 `title / alt` 会生成图题并自动编号；块级公式自动编号 `(1)(2)(3)`；表格按 Markdown 原样渲染。
-- 快捷插入：支持标题、列表、表格、代码块、行内/块级公式、引用与图片语法。
-- 正文单栏排版：默认 A4 + 25mm 页边距，支持字号、行距、首行缩进。
-- 页眉页脚：页眉显示“期刊名 + 论文标题”，页脚显示 `Page N`。
-- 图片拖拽：拖入编辑器自动转 base64 Markdown，支持压缩（质量/最大宽）。
-- 预览与导出一致：预览复用导出分页结果，以最终 PDF 排版为唯一标准。
-- 代码高亮：基于 `highlight.js` 渲染代码块。
-- HTML 安全清洗：导出前通过 `DOMPurify` 清洗渲染结果。
-- 导出方式：`markdown-it` → 学术模板渲染 → `paged.js` 分页 → 浏览器 `window.print()` 导出 PDF。
-- 自动缓存：输入会自动保存到浏览器本地缓存，刷新后自动恢复。
-- 一键清空：支持二次确认后清空当前输入与本地缓存。
-- i18n：`zh-CN` / `en-US`。
-- 亮/暗模式：预览纸张区域保持白纸视觉，周边跟随主题变化。
-- 顶栏外链：标题 `mdPaper` 右侧提供 GitHub 图标入口，直达项目仓库。
+- 纯前端运行：无后端 API、无云函数，编辑、预览与导出均在浏览器内完成。
+- Markdown 编辑：支持标题、列表、引用、表格、链接、代码块、图片、脚注等基础语法。
+- 数学公式：HTML 预览侧当前由 KaTeX 渲染；Typst 侧数学兼容增强仍在后续计划中。
+- 元信息编辑：左侧表单继续管理标题、副标题、作者、单位、通讯作者、摘要、关键词、基金等结构化字段。
+- 双预览职责分离：
+  - 全屏双栏编辑预览 = HTML
+  - 非全屏右侧主预览 = Typst SVG
+- Typst 导出：默认导出为 Typst PDF；旧 screenshot/canvas 导出为显式兼容模式。
+- Typst 调试窗口：可查看编译状态、diagnostics、最近生成源码、模板名、编译时间与虚拟工程摘要。
+- 模板切换：当前内置 R.U.B.B.I.S.H 模板族，可在预览区切换模板。
+- 图片资源：支持浏览器内图片资源池，已上传图片以 `mdasset:` 形式引用。
+- 图片显示比例：正文区支持设置图片最大显示百分比，HTML 预览与 Typst 序列化都会读取该设置。
+- 本地草稿：编辑内容与元信息会持久化到浏览器本地缓存。
+- 国际化：当前支持 `zh-CN` / `en-US`。
+- 明暗主题：界面支持亮色与暗色模式，纸面预览保持白底阅读体验。
 
-## 本地运行
+## 预览与导出模型
 
-```bash
-pnpm install
-pnpm dev
-```
+### 1. HTML 预览
 
-构建与预览：
+HTML 预览的职责是提供**编辑过程中的即时反馈**。
 
-```bash
-pnpm build
-pnpm preview
-```
+- 使用场景：全屏双栏编辑。
+- 目标：快速查看 Markdown 结构、段落、图片、公式与整体排版趋势。
+- 当前限制：HTML 预览仍在继续向 Typst 语义对齐，不能把它视为最终排版结果。
 
-## 静态部署
+### 2. Typst SVG 预览
 
-本项目构建后输出 `dist/`，可直接部署到任意静态托管：
+Typst SVG 预览的职责是提供**右侧主预览**。
 
-- Cloudflare Pages：Build command `pnpm build`，Output `dist`
-- GitHub Pages：将 `dist` 内容发布到 Pages 分支或使用 CI 自动发布
+- 使用场景：非全屏主界面右侧预览。
+- 目标：展示基于 Typst 实际编译得到的页面结果。
+- 特点：多页 SVG 页面间已加入明确间距，便于区分页面边界。
+- 编译失败时：界面保留错误提示，更多细节可在 Typst 调试窗口中查看。
 
-`vite.config.ts` 已设置 `base: './'`，适配子路径静态托管。
+### 3. Typst PDF 导出
 
-## 元信息字段（与当前代码一致）
+当前默认导出路径是 Typst PDF。
 
-`metadata` 结构对应 `src/types/manuscript.ts` 中的 `ManuscriptMeta`：
+- 预览与导出应来自同一份 Typst 编译产物。
+- 导出结果是可搜索、可选中文本的 PDF，而不是截图位图。
+- 若当前 Typst 编译失败，默认导出会失败，并提示查看 Typst 调试信息。
+
+### 4. Legacy Screenshot Export
+
+旧导出方式仍保留，但仅作为兼容模式。
+
+- 本质上仍是截图式导出。
+- 可能出现文字位图化、分页误差、远程资源不一致等问题。
+- 不应再视为默认导出路径。
+
+## Typst 调试窗口
+
+预览区提供独立的 Typst 调试入口，用于辅助排查排版与编译问题。
+
+当前可查看的信息包括：
+
+- 编译状态：`idle / compiling / ready / error`
+- 当前模板
+- 最近编译时间
+- diagnostics
+- 最近一次生成的 Typst 源码
+- 虚拟工程摘要，例如入口文件、模板入口、已注入的源码文件列表
+
+当前调试窗口主要用于：
+
+- 判断失败发生在模板、正文、引用还是资源阶段
+- 查看最终实际送入 Typst 的源码
+- 辅助定位 Typst 编译错误
+
+## 模板系统
+
+当前模板源码位于：`src/services/typst/templates/`
+
+当前状态：
+
+- 模板文件已从 TypeScript 内联字符串迁移为独立 `.typ` 文件。
+- 当前仓库内已存在 R.U.B.B.I.S.H 默认模板与紧凑模板。
+- 模板切换已经接入预览区。
+
+后续整理方向已经明确，但尚未全部实现：
+
+- 仅 `template_*.typ` 文件应作为可选模板显示
+- `common.typ` 将作为主入口默认共享导入
+- `common_rubbish.typ` 将承担当前 R.U.B.B.I.S.H 模板族共享能力
+- 模板目录下所有 `.typ` 文件都应进入 Typst 虚拟源码文件系统
+
+也就是说，当前已经完成“模板独立文件化”，但“按命名约定自动发现模板”仍在后续计划中。
+
+## 元信息模型
+
+`metadata` 结构定义于 `src/types/manuscript.ts` 中的 `ManuscriptMeta`：
 
 ```ts
 interface ManuscriptMeta {
@@ -65,138 +111,162 @@ interface ManuscriptMeta {
 }
 ```
 
-通讯作者渲染规则（`src/utils/format.ts` + `src/components/PreviewPane.vue`）：
+当前作者与单位的表达遵循“作者局部标记”思路：
 
-- 作者行会在通讯作者姓名后追加 `*`，并与单位上标共存（如：`李娜²*`）。
-- 通讯作者信息单独一行显示：`* 通讯作者: 姓名 (联系方式)`。
-- 若联系方式为空，则显示为：`* 通讯作者: 姓名`。
+- `1`、`2` 等标记表示作者与单位的关联
+- `*` 表示通讯作者标记
+- 这类标记是 front matter 内部的局部视觉标记，不等同于正文脚注系统
 
-## 字体文件与版权说明
+## 图片与资源说明
 
-字体位于：`src/assets/fonts/`
+### 1. `mdasset:` 资源
 
-- `simsun.woff2`：中文宋体角色（默认使用可分发衬线字体映射）
-- `timesnewroman.woff2` / `timesnewroman-italic.woff2`：英文/数字衬线角色
-- `stix2math.woff2`：数学字体角色
+编辑器上传或拖拽进入的图片会进入浏览器内资源池，并通过 `mdasset:` 进行引用。
+
+这是当前 Typst 编译路径优先支持的图片来源。
+
+### 2. 远程链接图片
+
+当前策略已经明确：**不支持把远程链接图片自动纳入 Typst 编译与默认导出路径**。
+
+原因不是单一实现细节，而是浏览器环境下远程抓取经常受到 CORS 等限制，无法作为可靠的排版输入。
+
+当前表现：
+
+- HTML 预览中，远程图片仍可能由浏览器直接显示。
+- Typst 预览与 Typst 导出中，远程链接图片不被视为可靠输入。
+- 界面会给出明确提示，而不是继续伪装为可导出资源。
+
+推荐做法：
+
+- 对需要进入 Typst 预览与导出的图片，优先使用上传后的 `mdasset:` 资源。
+- 不要依赖远程图床 URL 作为最终投稿 PDF 的资源来源。
+
+### 3. 图片显示比例
+
+当前 `imageOption.maxDisplayPercent` 已接入：
+
+- HTML 预览中的图片显示宽度限制
+- Typst 序列化时的图片宽度参数
+
+该设置用于统一控制正文图片在页面中的最大显示比例。
+
+## 字体说明
+
+当前仓库内包含部分字体资源，位于：`src/assets/fonts/`
+
+当前实现已经会在 Typst 运行时侧接入字体，但字体系统仍处于继续整理阶段。当前应注意：
+
+- 不应把某个系统字体名称视为天然存在
+- 浏览器侧与 Typst Wasm 侧的字体可用性并不完全等价
+- 后续会继续整理字体加载机制与模板排版之间的关系
+
+换言之，当前字体链路可用，但还不是最终定型方案。
+
+## 本地开发
+
+安装依赖并启动开发环境：
+
+```bash
+pnpm install
+pnpm dev
+```
+
+常用命令：
+
+```bash
+pnpm typecheck
+pnpm build
+pnpm preview
+```
 
 说明：
 
-- 为保证可运行示例，仓库中放置了可分发字体文件并映射到对应角色。
-- 若你有正式商用授权字体（如 SimSun / Times New Roman / STIX Two Math），可直接替换同名文件。
-- 替换字体后无需改业务代码，仅需保证文件路径与格式（woff2）一致。
+- `pnpm typecheck`：执行 TypeScript / Vue 类型检查
+- `pnpm build`：执行类型检查并构建生产产物
+- `pnpm preview`：本地预览构建结果
 
-## 导出方式与建议
+## 静态部署
 
-### `browser-print`
+构建输出目录为 `dist/`，可部署到任意静态托管平台。
 
-- 方式：`markdown-it` → 学术模板渲染 → `paged.js` 分页 → 浏览器 `window.print()`
-- 优势：文字保持可选中；预览与导出复用同一套分页结果；数学公式、代码高亮与分页质量更稳定
-- 注意：会打开浏览器打印对话框，请选择“另存为 PDF”
+例如：
 
-建议：
+- Cloudflare Pages
+- GitHub Pages
+- 其他支持静态文件部署的平台
 
-- 常规场景优先使用浏览器打印导出
-- 涉及远程图片时优先先转内联资源，再导出
+`vite.config.ts` 已配置为适应静态部署场景。
 
-## 导出回归对照（手动）
-
-1. 在左侧「元信息」面板点击「恢复示例论文 / Reset to sample manuscript」。
-2. 在预览首页检查作者区：通讯作者姓名后应出现 `*`（且与单位上标共存），并显示单独一行通讯作者说明。
-3. 在预览区按页检查：重点看标题是否孤行、图片题注与块公式编号是否连续、结构块是否被硬切。
-4. 选择导出并下载 PDF，逐页对比预览。
-
-重点观察项：
-
-- 是否仍出现“第一页空白、正文从第二页开始”。
-- 通讯作者标记是否正确：例如 `张伟¹，李娜¹,²*，王磊²`，且有 `* 通讯作者: 李娜 (na.li@example.edu.cn)`。
-- 段落是否有明显孤行/寡行。
-- 表格、图片、块级公式是否出现底部裁切或残缺。
-- 图片题注与块级公式编号在跨页后是否保持连续。
-- 预览与导出结果的页序是否一致。
-
-## 常见问题（FAQ）
-
-### 1. 远程图片导出失败或丢失
-
-原因：跨域（CORS）限制导致远程图片无法稳定抓取或转换为可导出的内联资源。
-
-处理：
-
-- 优先使用拖拽上传（自动转 base64）
-- 在导出弹窗中执行“尝试转为内联 base64”
-- 若目标站点不允许跨域，仍可能失败，建议手动本地化图片
-
-### 2. 公式显示正常但导出异常
-
-处理：
-
-- 确认公式语法为 KaTeX 支持的 LaTeX 子集
-- 对超长公式尝试拆分为多行或减小字号后再导出
-
-### 3. 分页不理想
-
-处理：
-
-- 调整页边距、字号、行距
-- 大表格/大图尽量缩小宽度，避免跨页冲突
-- 导出前先在预览区逐页核对
-
-### 4. 字体风格与期刊要求不一致
-
-处理：
-
-- 将 `src/assets/fonts/` 下字体替换为目标期刊授权字体
-- 保持文件名不变即可快速生效
-
-## 项目结构
+## 当前目录结构
 
 ```text
 src/
-  main.ts
-  App.vue
-  constants/
-    journal.ts
   assets/
     fonts/
-  styles/
-    tokens.css
-    theme.css
-    journal.css
-    main.css
-  i18n/
-    index.ts
-    zh-CN.ts
-    en-US.ts
-  store/
-    useManuscriptStore.ts
   components/
-    TopBar.vue
-    MetaForm.vue
-    MarkdownEditor.vue
-    PreviewPane.vue
     ExportDialog.vue
-  services/
-    markdown/
-      md.ts
-      normalizeMath.ts
-      sanitize.ts
-    export/
-      exportPdf.ts
-      exportRoot.ts
-      helpers.ts
-      engines/
-        browserPrintEngine.ts
-    image/
-      imageToBase64.ts
-      compressImage.ts
-  utils/
-    dom.ts
-    format.ts
-    debounce.ts
-    imageAsset.ts
+    MarkdownEditor.vue
+    MetaForm.vue
+    PreviewPane.vue
+    TopBar.vue
+  constants/
   data/
     sampleManuscript.ts
+  i18n/
+    en-US.ts
+    index.ts
+    zh-CN.ts
+  services/
+    document/
+    export/
+      engines/
+    image/
+    markdown/
+    pagination/
+    typst/
+      compileManuscript.ts
+      runtime.ts
+      serialize.ts
+      templates.ts
+      templates/
+        frontmatter.typ
+        rubbish-compact.typ
+        rubbish-default.typ
+  store/
+    useManuscriptStore.ts
+  styles/
+    journal.css
+    main.css
+    theme.css
+    tokens.css
   types/
     manuscript.ts
-    modules.d.ts
+  utils/
+    format.ts
+    imageAsset.ts
 ```
+
+## 当前已知限制
+
+- HTML 预览与 Typst 预览仍有部分语义差异，正在继续对齐。
+- Typst 文本转义仍需进一步完善，复杂字符组合仍需继续覆盖。
+- `[@key]` reference 语法与 bibliographic pipeline 仍未完全收口。
+- 数学公式的 Typst 兼容增强尚未接入 `miTeX`。
+- 模板自动发现机制尚未完全按命名约定实现。
+- 字体系统与资源系统仍在继续整理。
+
+## 手动检查建议
+
+开发阶段建议至少检查以下内容：
+
+1. 全屏双栏中 HTML 预览是否与编辑内容一致。
+2. 非全屏右侧 Typst 预览是否成功编译并分页显示。
+3. 切换模板后，内容语义是否保持不变，仅版式变化。
+4. Typst PDF 导出是否与当前 Typst 预览一致。
+5. Typst 调试窗口中的 diagnostics 是否能解释当前错误。
+6. `mdasset:` 图片是否同时在 HTML 与 Typst 路径中正常工作。
+
+## 路线图
+
+当前未完成事项已整理到：`roadmap.md`
