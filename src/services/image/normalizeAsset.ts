@@ -20,31 +20,3 @@ export const normalizeImageAssetBlob = async (
     dataUrl: await fileToDataUrl(normalized.blob),
   };
 };
-
-export const normalizeRemoteImage = async (
-  url: string,
-  option: CompressOption,
-): Promise<NormalizedImageAssetPayload> => {
-  const response = await fetch(url, { mode: 'cors' });
-  if (!response.ok) {
-    throw new Error(`fetch failed: ${url}`);
-  }
-
-  const blob = await response.blob();
-  return await normalizeImageAssetBlob(blob, option, url);
-};
-
-export const replaceMarkdownImageSource = (
-  markdown: string,
-  targetSource: string,
-  nextSource: string,
-): string => markdown.replace(
-  /!\[([^\]]*)\]\(([^\s)]+)(\s+"[^"]*")?\)/gu,
-  (segment, alt: string, source: string, title = '') => {
-    if (source !== targetSource) {
-      return segment;
-    }
-
-    return `![${alt}](${nextSource}${title})`;
-  },
-);

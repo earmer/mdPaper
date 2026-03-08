@@ -8,10 +8,15 @@ import type { CitationRegistry } from '@/services/document/citation';
 import {
   getCitationDisplay,
   isWithinReferenceSection,
-  stripReferenceMarker,
+  normalizeCitationKeys,
 } from '@/services/document/citation';
 import { normalizeMathInMarkdown } from '@/services/markdown/normalizeMath';
 import { sanitizeHtml } from '@/services/markdown/sanitize';
+import { normalizeAutoNumbers } from '@/services/markdown/postprocess/autoNumbers';
+import { normalizeFigureAndTableCaptions } from '@/services/markdown/postprocess/captions';
+import { normalizeDisplayMathParagraph } from '@/services/markdown/postprocess/displayMath';
+import { normalizeJournalHeadings } from '@/services/markdown/postprocess/headings';
+import { normalizeReferenceLists } from '@/services/markdown/postprocess/references';
 
 const markdown = new MarkdownIt({
   html: false,
@@ -101,17 +106,34 @@ const createTextToken = (content: string): Token => {
   return token;
 };
 
+const buildCitationInlineToken = (
+  rawKeys: string,
+  registry: CitationRegistry,
+): Token => {
+  const match = getCitationDisplay(normalizeCitationKeys(rawKeys), registry);
+  const classes = ['md-citation'];
+  if (match.missingKeys.length > 0) {
+    classes.push('md-citation--missing');
+  }
+
+  return createHtmlInlineToken(
+    `<span class="${classes.join(' ')}">${escapeHtml(match.label)}</span>`,
+  );
+};
+
 const applyCitationTokens = (tokens: Token[], registry: CitationRegistry | undefined): void => {
   if (registry === undefined) {
     return;
   }
+
+  const citationPattern = /(\[@[^\]]+(?:;\s*@[A-Za-z0-9:_-]+)*\])/gu;
 
   tokens.forEach((token) => {
     if (token.type !== 'inline' || !Array.isArray(token.children) || token.map === null) {
       return;
     }
 
-    const lineStart = (token.map?.[0] ?? 0) + 1;
+    const lineStart = token.map[0] + 1;
     if (isWithinReferenceSection(lineStart, registry)) {
       return;
     }
@@ -123,35 +145,18 @@ const applyCitationTokens = (tokens: Token[], registry: CitationRegistry | undef
         return;
       }
 
-      const segments = child.content.split(/(\[@[^\]]+(?:;\s*@[A-Za-z0-9:_-]+)*\])/gu);
+      const segments = child.content.split(citationPattern);
       segments.forEach((segment) => {
         if (segment.length === 0) {
           return;
         }
 
-        if (!/^\[@/u.test(segment)) {
+        if (!segment.startsWith('[@')) {
           transformed.push(createTextToken(segment));
           return;
         }
 
-        const match = getCitationDisplay(
-          segment
-            .slice(2, -1)
-            .split(';')
-            .map((item) => item.trim())
-            .map((item) => item.startsWith('@') ? item.slice(1) : item)
-            .filter((item) => item.length > 0),
-          registry,
-        );
-        const classes = ['md-citation'];
-        if (match.missingKeys.length > 0) {
-          classes.push('md-citation--missing');
-        }
-        transformed.push(
-          createHtmlInlineToken(
-            `<span class="${classes.join(' ')}">${escapeHtml(match.label)}</span>`,
-          ),
-        );
+        transformed.push(buildCitationInlineToken(segment.slice(2, -1), registry));
       });
     });
 
@@ -217,240 +222,6 @@ markdown.renderer.rules.code_block = (tokens, idx, options, env, self) => {
     ?? `<pre${self.renderAttrs(token)}><code>${escapeHtml(token.content)}</code></pre>`;
 };
 
-const stripHeadingOrdinal = (input: string, expectedDepth: 1 | 2 | 3): string => {
-  const text = input.trim();
-  if (text.length === 0) {
-    return '';
-  }
-
-  const sectionPattern = new RegExp(
-    `^\\s*\\d+(?:\\.\\d+){${Math.max(0, expectedDepth - 1)}}(?:[.．、:：)\\-])?\\s*`,
-    'u',
-  );
-  const cleaned = text.replace(sectionPattern, '').trim();
-  return cleaned.length > 0 ? cleaned : text;
-};
-
-const normalizeJournalHeadings = (html: string): string => {
-  if (typeof document === 'undefined') {
-    return html;
-  }
-
-  const template = document.createElement('template');
-  template.innerHTML = html;
-
-  const headings = template.content.querySelectorAll<HTMLElement>('h2, h3, h4');
-  let level2 = 0;
-  let level3 = 0;
-  let level4 = 0;
-
-  headings.forEach((heading) => {
-    const raw = (heading.textContent ?? '').replace(/\s+/gu, ' ').trim();
-    if (raw.length === 0) {
-      return;
-    }
-
-    if (/^(appendix\b|part\s+[IVXLCDM]+\b|附录)/iu.test(raw)) {
-      heading.classList.add('journal-heading-appendix');
-      return;
-    }
-
-    let headingNumber = '';
-    let headingText = raw;
-    const tagName = heading.tagName.toLowerCase();
-    if (tagName === 'h2') {
-      level2 += 1;
-      level3 = 0;
-      level4 = 0;
-      headingNumber = `${level2}`;
-      headingText = stripHeadingOrdinal(raw, 1);
-    } else if (tagName === 'h3') {
-      if (level2 === 0) {
-        level2 = 1;
-      }
-      level3 += 1;
-      level4 = 0;
-      headingNumber = `${level2}.${level3}`;
-      headingText = stripHeadingOrdinal(raw, 2);
-    } else if (tagName === 'h4') {
-      if (level2 === 0) {
-        level2 = 1;
-      }
-      if (level3 === 0) {
-        level3 = 1;
-      }
-      level4 += 1;
-      headingNumber = `${level2}.${level3}.${level4}`;
-      headingText = stripHeadingOrdinal(raw, 3);
-    }
-
-    if (headingNumber.length === 0) {
-      return;
-    }
-
-    heading.classList.add('journal-heading-numbered');
-    heading.innerHTML = [
-      `<span class="journal-heading-number">${escapeHtml(headingNumber)}</span>`,
-      `<span class="journal-heading-title">${escapeHtml(headingText)}</span>`,
-    ].join('');
-  });
-
-  return template.innerHTML;
-};
-
-const normalizeFigureAndTableCaptions = (html: string): string => {
-  if (typeof document === 'undefined') {
-    return html;
-  }
-
-  const figureCaptionPattern = /^(?:figure|fig\.?|图)\s*(?:[A-Za-z]?\d+(?:[.\-]\d+)*)?\s*(?:[:：.．、\-])?\s*(.+)$/iu;
-  const template = document.createElement('template');
-  template.innerHTML = html;
-
-  const extractCaption = (text: string, pattern: RegExp): string => {
-    const normalized = text.replace(/\s+/gu, ' ').trim();
-    const matched = normalized.match(pattern);
-    return matched?.[1]?.trim() ?? '';
-  };
-
-  const figures = template.content.querySelectorAll<HTMLElement>('.md-figure');
-  figures.forEach((figure) => {
-    let captionText = '';
-    const nextSibling = figure.nextElementSibling;
-    if (nextSibling instanceof HTMLElement && nextSibling.tagName === 'P') {
-      const explicitCaption = extractCaption(nextSibling.textContent ?? '', figureCaptionPattern);
-      if (explicitCaption.length > 0) {
-        captionText = explicitCaption;
-        nextSibling.remove();
-      }
-    }
-
-    if (captionText.length === 0) {
-      captionText = (figure.querySelector<HTMLElement>('figcaption')?.textContent ?? '').trim();
-    }
-
-    if (captionText.length === 0) {
-      return;
-    }
-
-    let figureCaption = figure.querySelector<HTMLElement>('figcaption');
-    if (figureCaption === null) {
-      figureCaption = document.createElement('figcaption');
-      figure.appendChild(figureCaption);
-    }
-    figureCaption.classList.add('md-figure-caption');
-    figureCaption.textContent = captionText;
-  });
-
-  return template.innerHTML;
-};
-
-const normalizeReferenceLists = (html: string): string => {
-  if (typeof document === 'undefined') {
-    return html;
-  }
-
-  const template = document.createElement('template');
-  template.innerHTML = html;
-
-  const headings = template.content.querySelectorAll<HTMLElement>('h2, h3, h4');
-  headings.forEach((heading) => {
-    const headingText = (heading.textContent ?? '').replace(/\s+/gu, ' ').trim().toLowerCase();
-    if (!/^(references|reference|参考文献)$/u.test(headingText)) {
-      return;
-    }
-
-    const next = heading.nextElementSibling;
-    if (!(next instanceof HTMLElement) || (next.tagName !== 'OL' && next.tagName !== 'UL')) {
-      return;
-    }
-
-    const target = next.tagName === 'OL' ? next : document.createElement('ol');
-    target.classList.add('md-reference-list');
-
-    if (next.tagName === 'UL') {
-      Array.from(next.children).forEach((child) => {
-        if (child.tagName === 'LI') {
-          target.appendChild(child.cloneNode(true));
-        }
-      });
-      next.replaceWith(target);
-    }
-
-    target.querySelectorAll('li').forEach((item) => {
-      item.textContent = stripReferenceMarker(item.textContent ?? '');
-    });
-  });
-
-  return template.innerHTML;
-};
-
-const normalizeDisplayMathParagraph = (html: string): string => {
-  if (typeof document === 'undefined') {
-    return html;
-  }
-
-  const template = document.createElement('template');
-  template.innerHTML = html;
-  const paragraphs = template.content.querySelectorAll('p');
-
-  paragraphs.forEach((paragraph) => {
-    const meaningfulChildren = Array.from(paragraph.childNodes).filter((node) => {
-      if (node.nodeType !== Node.TEXT_NODE) {
-        return true;
-      }
-
-      return (node.textContent ?? '').trim().length > 0;
-    });
-
-    if (meaningfulChildren.length !== 1) {
-      return;
-    }
-
-    const onlyChild = meaningfulChildren[0];
-    if (!(onlyChild instanceof HTMLElement) || !onlyChild.classList.contains('katex-display')) {
-      return;
-    }
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'katex-display-block';
-    wrapper.appendChild(onlyChild);
-    paragraph.replaceWith(wrapper);
-  });
-
-  return template.innerHTML;
-};
-
-const normalizeAutoNumbers = (html: string): string => {
-  if (typeof document === 'undefined') {
-    return html;
-  }
-
-  const template = document.createElement('template');
-  template.innerHTML = html;
-
-  const figures = template.content.querySelectorAll<HTMLElement>('.md-figure, figure');
-  figures.forEach((figure, index) => {
-    const number = String(index + 1);
-    figure.setAttribute('data-figure-number', number);
-
-    const caption = figure.querySelector<HTMLElement>('figcaption, .md-figure-caption');
-    caption?.setAttribute('data-figure-number', number);
-  });
-
-  const tableCaptions = template.content.querySelectorAll<HTMLElement>('.md-table-caption, table > caption');
-  tableCaptions.forEach((caption, index) => {
-    caption.setAttribute('data-table-number', String(index + 1));
-  });
-
-  const displayMathBlocks = template.content.querySelectorAll<HTMLElement>('.katex-display-block');
-  displayMathBlocks.forEach((block, index) => {
-    block.setAttribute('data-equation-number', String(index + 1));
-  });
-
-  return template.innerHTML;
-};
-
 export interface RenderMarkdownOptions {
   normalizeJournalHeadings?: boolean;
   resolveImageSrc?: (source: string) => string | null;
@@ -461,23 +232,24 @@ export { markdown };
 
 export const renderMarkdown = (source: string, options: RenderMarkdownOptions = {}): string => {
   const normalizedSource = normalizeMathInMarkdown(source);
-  const tokens = markdown.parse(normalizedSource, {
+  const env = {
     resolveImageSrc: options.resolveImageSrc,
     citationRegistry: options.citationRegistry,
-  } satisfies MarkdownRenderEnv);
+  } satisfies MarkdownRenderEnv;
+  const tokens = markdown.parse(normalizedSource, env);
   attachSourceLineAttrs(tokens);
   applyCitationTokens(tokens, options.citationRegistry);
 
-  const rendered = markdown.renderer.render(tokens, markdown.options, {
-    resolveImageSrc: options.resolveImageSrc,
-    citationRegistry: options.citationRegistry,
-  } satisfies MarkdownRenderEnv);
-  const normalizedDisplayMath = normalizeDisplayMathParagraph(rendered);
-  const normalizedCaptions = normalizeFigureAndTableCaptions(normalizedDisplayMath);
-  const normalizedAutoNumbers = normalizeAutoNumbers(normalizedCaptions);
-  const normalizedReferences = normalizeReferenceLists(normalizedAutoNumbers);
+  const rendered = markdown.renderer.render(tokens, markdown.options, env);
+  const postprocessed = [
+    normalizeDisplayMathParagraph,
+    normalizeFigureAndTableCaptions,
+    normalizeAutoNumbers,
+    normalizeReferenceLists,
+  ].reduce((html, transform) => transform(html), rendered);
   const normalizedHeadingHtml = options.normalizeJournalHeadings
-    ? normalizeJournalHeadings(normalizedReferences)
-    : normalizedReferences;
+    ? normalizeJournalHeadings(postprocessed)
+    : postprocessed;
+
   return sanitizeHtml(normalizedHeadingHtml);
 };
