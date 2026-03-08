@@ -3,8 +3,8 @@ import { computed, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
-import { exportPdf } from '@/services/export/exportPdf';
-import { fileToDataUrl, urlToDataUrl } from '@/services/image/imageToBase64';
+import { exportLegacyPdf, exportTypstPdf } from '@/services/export/exportPdf';
+import { compileManuscriptTypst } from '@/services/typst/compileManuscript';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
 import { getPrintRoot } from '@/utils/dom';
 
@@ -18,8 +18,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const store = useManuscriptStore();
-const exporting = ref(false);
-const converting = ref(false);
+const exportingTypst = ref(false);
+const exportingLegacy = ref(false);
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -31,51 +31,57 @@ const paperOptions = computed(() => [
   { label: t('export.paperLetter'), value: 'Letter' },
 ]);
 
-const applyInlineForRemoteImages = async (): Promise<void> => {
-  const targets = store.remoteImageUrls;
-  if (targets.length === 0) {
-    MessagePlugin.warning(t('errors.noRemoteImage'));
-    return;
+
+
+const ensureFreshTypstArtifact = async (): Promise<string> => {
+  const result = await compileManuscriptTypst(
+    store.metadata,
+    store.content,
+    store.typstTemplateId,
+    store.imageAssets,
+    store.imageOption,
+  );
+  store.setTypstArtifacts(result);
+
+  if (result.status === 'error' || result.pdfBlobUrl.length === 0) {
+    throw new Error(result.errorMessage || t('export.typstExportFailed'));
   }
 
-  converting.value = true;
-
-  for (const url of targets) {
-    try {
-      const dataUrl = await urlToDataUrl(url);
-      const assetSource = store.addImageAsset(dataUrl);
-      store.content = store.content.split(url).join(assetSource);
-    } catch {
-      try {
-        const response = await fetch(url, { mode: 'no-cors' });
-        const blob = await response.blob();
-        if (blob.size <= 0) {
-          throw new Error('empty blob');
-        }
-        const dataUrl = await fileToDataUrl(blob);
-        const assetSource = store.addImageAsset(dataUrl);
-        store.content = store.content.split(url).join(assetSource);
-      } catch {
-        MessagePlugin.error(t('errors.fetchFailed', { url }));
-      }
-    }
-  }
-
-  converting.value = false;
+  return result.pdfBlobUrl;
 };
 
-const handleExport = async (): Promise<void> => {
+const handleTypstExport = async (): Promise<void> => {
+  exportingTypst.value = true;
+  MessagePlugin.info(t('export.exportingTypst'));
+
+  try {
+    const blobUrl = await ensureFreshTypstArtifact();
+    await exportTypstPdf(blobUrl, {
+      metadata: store.metadata,
+      locale: store.locale,
+    });
+    MessagePlugin.success(t('export.success'));
+    dialogVisible.value = false;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : t('errors.generic');
+    MessagePlugin.error(t('errors.exportFailed', { reason }));
+  } finally {
+    exportingTypst.value = false;
+  }
+};
+
+const handleLegacyExport = async (): Promise<void> => {
   const root = getPrintRoot();
   if (root === null) {
     MessagePlugin.error(t('errors.containerMissing'));
     return;
   }
 
-  exporting.value = true;
-  MessagePlugin.info(t('export.exporting'));
+  exportingLegacy.value = true;
+  MessagePlugin.info(t('export.exportingLegacy'));
 
   try {
-    await exportPdf({
+    await exportLegacyPdf({
       articleElement: root,
       locale: store.locale,
       metadata: store.metadata,
@@ -86,7 +92,7 @@ const handleExport = async (): Promise<void> => {
     const reason = error instanceof Error ? error.message : t('errors.generic');
     MessagePlugin.error(t('errors.exportFailed', { reason }));
   } finally {
-    exporting.value = false;
+    exportingLegacy.value = false;
   }
 };
 </script>
@@ -122,28 +128,28 @@ const handleExport = async (): Promise<void> => {
               <TTag theme="warning" variant="light">
                 {{ t('preview.remoteImageCount', { count: store.remoteImageUrls.length }) }}
               </TTag>
-              <p class="export-dialog__risk-text">{{ t('export.remoteImageRisk') }}</p>
-              <TButton variant="outline" :loading="converting" @click="applyInlineForRemoteImages">
-                <template v-if="!converting" #icon>
-                  <Icon icon="mdi:image-sync-outline" />
-                </template>
-                {{ converting ? t('export.converting') : t('export.convertInline') }}
-              </TButton>
+              <p class="export-dialog__risk-text">{{ t('export.remoteImageUnsupported') }}</p>
             </div>
           </TSpace>
         </TCard>
       </TForm>
 
-      <div class="export-dialog__footer">
+      <div class="export-dialog__footer export-dialog__footer--stacked">
         <TSpace>
           <TButton variant="outline" @click="dialogVisible = false">
             {{ t('export.cancel') }}
           </TButton>
-          <TButton theme="primary" :loading="exporting" @click="handleExport">
-            <template v-if="!exporting" #icon>
-              <Icon icon="mdi:file-download-outline" />
+          <TButton variant="outline" :loading="exportingLegacy" @click="handleLegacyExport">
+            <template v-if="!exportingLegacy" #icon>
+              <Icon icon="mdi:file-image-outline" />
             </template>
-            {{ t('export.start') }}
+            {{ t('export.legacyStart') }}
+          </TButton>
+          <TButton theme="primary" :loading="exportingTypst" @click="handleTypstExport">
+            <template v-if="!exportingTypst" #icon>
+              <Icon icon="mdi:file-pdf-box" />
+            </template>
+            {{ t('export.typstStart') }}
           </TButton>
         </TSpace>
       </div>
