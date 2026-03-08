@@ -84,15 +84,15 @@ interface ManuscriptMeta {
 
 ## 导出方式与建议
 
-### `canvas`
+### `browser-print`
 
-- 方式：html2pdf.js（html2canvas + jsPDF）
-- 优势：直接下载 PDF，不走打印对话框
-- 注意：复杂页面可能出现文字栅格化、分页细节偏差
+- 方式：`markdown-it` → 学术模板渲染 → `pagedjs` 分页 → 浏览器 `window.print()`
+- 优势：文字保持可选中；数学公式、代码高亮与分页质量更稳定
+- 注意：会打开浏览器打印对话框，请选择“另存为 PDF”
 
 建议：
 
-- 常规场景直接使用 `canvas`
+- 常规场景优先使用浏览器打印导出
 - 涉及远程图片时优先先转内联资源，再导出
 
 ## 导出回归对照（手动）
@@ -181,7 +181,7 @@ src/
       exportRoot.ts
       helpers.ts
       engines/
-        canvasEngine.ts
+        browserPrintEngine.ts
     image/
       imageToBase64.ts
       compressImage.ts

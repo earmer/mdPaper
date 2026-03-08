@@ -179,8 +179,8 @@ const normalizeFigureAndTableCaptions = (html: string): string => {
     return html;
   }
 
-  const figureCaptionPattern = /^(?:figure|fig\.?|图)\s*(?:\d+)?\s*[:：]\s*(.+)$/iu;
-  const tableCaptionPattern = /^(?:table|表)\s*(?:\d+)?\s*[:：]\s*(.+)$/iu;
+  const figureCaptionPattern = /^(?:figure|fig\.?|图)\s*(?:[A-Za-z]?\d+(?:[.\-]\d+)*)?\s*(?:[:：.．、\-])?\s*(.+)$/iu;
+  const tableCaptionPattern = /^(?:table|表)\s*(?:[A-Za-z]?\d+(?:[.\-]\d+)*)?\s*(?:[:：.．、\-])?\s*(.+)$/iu;
   const template = document.createElement('template');
   template.innerHTML = html;
 
@@ -231,12 +231,20 @@ const normalizeFigureAndTableCaptions = (html: string): string => {
 
   const tables = template.content.querySelectorAll<HTMLElement>('table');
   tables.forEach((table) => {
-    const previous = table.previousElementSibling;
-    if (!(previous instanceof HTMLElement) || previous.tagName !== 'P') {
+    const nativeCaption = table.querySelector<HTMLElement>('caption');
+    nativeCaption?.classList.add('md-table-caption');
+
+    const candidates = [table.previousElementSibling, table.nextElementSibling]
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element.tagName === 'P');
+
+    const captionSource = candidates.find((element) =>
+      extractCaption(element.textContent ?? '', tableCaptionPattern).length > 0,
+    );
+    if (captionSource === undefined) {
       return;
     }
 
-    const captionText = extractCaption(previous.textContent ?? '', tableCaptionPattern);
+    const captionText = extractCaption(captionSource.textContent ?? '', tableCaptionPattern);
     if (captionText.length === 0) {
       return;
     }
@@ -244,7 +252,7 @@ const normalizeFigureAndTableCaptions = (html: string): string => {
     const caption = document.createElement('div');
     caption.className = 'md-table-caption';
     caption.textContent = captionText;
-    previous.replaceWith(caption);
+    captionSource.replaceWith(caption);
   });
 
   return template.innerHTML;

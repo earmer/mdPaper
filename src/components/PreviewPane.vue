@@ -10,9 +10,8 @@ import {
 import { useI18n } from 'vue-i18n';
 import { PAPER_HEADER_LEFT, PAPER_HEADER_RIGHT } from '@/constants/journal';
 import { renderMarkdown } from '@/services/markdown/md';
-import { computeSharedPagination } from '@/services/pagination/sharedPagination';
-import { buildPageLabel } from '@/services/export/helpers';
 import { useManuscriptStore } from '@/store/useManuscriptStore';
+import type { ExportPayload } from '@/types/manuscript';
 import {
   formatAffiliationLine,
   formatAuthorAffiliation,
@@ -21,7 +20,9 @@ import {
 const { t } = useI18n();
 const store = useManuscriptStore();
 
-const renderedHtml = computed(() =>
+const EMPTY_PREVIEW_PAGE_HTML = '';
+
+const renderedBodyHtml = computed(() =>
   renderMarkdown(store.content, {
     normalizeJournalHeadings: store.exportSetting.normalizeHeadings,
     resolveImageSrc: (source) => store.resolveImageAsset(source),
@@ -68,18 +69,17 @@ const keywordLine = computed(() =>
     .join('; '),
 );
 
-const printRootRef = ref<HTMLElement | null>(null);
+const measureRootRef = ref<HTMLElement | null>(null);
+const previewPageHtmlList = ref<string[]>([EMPTY_PREVIEW_PAGE_HTML]);
 const currentPage = ref(1);
 const pageCount = ref(1);
-const pageHeightPx = ref(0);
-const pageOffsets = ref<number[]>([0]);
-const pageTopInsetPx = ref(0);
-const pageBottomInsetPx = ref(0);
+const previewRendering = ref(false);
 
 let resizeObserver: ResizeObserver | null = null;
 let resizeRafId: number | null = null;
 let imageEventAbortController: AbortController | null = null;
 let settleRecalculateTimeoutId: number | null = null;
+let previewRenderVersion = 0;
 
 const paperSizeMeta = computed(() =>
   store.exportSetting.paperSize === 'A4'
@@ -92,50 +92,8 @@ const previewWindowStyle = computed(() => ({
   height: `${paperSizeMeta.value.heightMm}mm`,
 }));
 
-const pageTopMaskStyle = computed(() => ({
-  height: `${pageTopInsetPx.value}px`,
-}));
-
-const pageTrackStyle = computed(() => {
-  const offset = pageOffsets.value[currentPage.value - 1]
-    ?? Math.max(0, (currentPage.value - 1) * pageHeightPx.value);
-  const roundedOffset = Math.round(offset);
-  return {
-    top: `-${roundedOffset}px`,
-  };
-});
-
-const currentPageBottomMaskHeight = computed(() => {
-  const pageHeight = pageHeightPx.value;
-  const pageTopInset = pageTopInsetPx.value;
-  const pageBottomInset = pageBottomInsetPx.value;
-  const standardVisibleHeight = Math.max(1, pageHeight - pageTopInset - pageBottomInset);
-  const start =
-    pageOffsets.value[currentPage.value - 1]
-    ?? Math.max(0, (currentPage.value - 1) * standardVisibleHeight);
-  const nextStart = pageOffsets.value[currentPage.value] ?? start + standardVisibleHeight;
-  const visibleHeight = Math.max(0, Math.min(standardVisibleHeight, nextStart - start));
-  const maskHeight = pageHeight - pageTopInset - visibleHeight;
-
-  return maskHeight > 0.5 ? maskHeight : 0;
-});
-
-const pageBottomMaskStyle = computed(() => ({
-  height: `${currentPageBottomMaskHeight.value}px`,
-}));
-
 const pageIndicatorText = computed(() =>
   t('preview.pageOf', { page: currentPage.value, total: pageCount.value }),
-);
-
-const previewFooterPageLabel = computed(() =>
-  buildPageLabel(store.locale, currentPage.value, pageCount.value),
-);
-
-const shouldShowPreviewPageNumber = computed(
-  () =>
-    store.exportSetting.headerFooter.showFooter
-    && store.exportSetting.headerFooter.showPageNumber,
 );
 
 const articleStyle = computed(() => ({
@@ -149,13 +107,26 @@ const articleStyle = computed(() => ({
   '--paper-size': store.exportSetting.paperSize,
 }));
 
-const previewHeaderStyle = computed(() => ({
-  left: `${store.exportSetting.margins.left}mm`,
-  right: `${store.exportSetting.margins.right}mm`,
-}));
+const currentPreviewPageHtml = computed(
+  () => previewPageHtmlList.value[currentPage.value - 1] ?? EMPTY_PREVIEW_PAGE_HTML,
+);
+
+const buildPreviewPayload = (): ExportPayload | null => {
+  const root = measureRootRef.value;
+  if (root === null) {
+    return null;
+  }
+
+  return {
+    articleElement: root,
+    locale: store.locale,
+    metadata: store.metadata,
+    exportSetting: store.exportSetting,
+  };
+};
 
 const waitForPreviewAssets = async (): Promise<void> => {
-  const root = printRootRef.value;
+  const root = measureRootRef.value;
   if (root === null) {
     return;
   }
@@ -202,26 +173,44 @@ const waitForPreviewAssets = async (): Promise<void> => {
   );
 };
 
-const recalculatePagination = (): void => {
-  const root = printRootRef.value;
-  if (root === null) {
+const recalculatePagination = async (): Promise<void> => {
+  const payload = buildPreviewPayload();
+  if (payload === null) {
     return;
   }
 
-  const pagination = computeSharedPagination({
-    root,
-    paperSize: store.exportSetting.paperSize,
-    marginsTopMm: store.exportSetting.margins.top,
-    marginsBottomMm: store.exportSetting.margins.bottom,
-  });
+  const currentVersion = ++previewRenderVersion;
+  previewRendering.value = true;
 
-  pageHeightPx.value = pagination.pageHeightPx;
-  pageTopInsetPx.value = pagination.pageTopInsetPx;
-  pageBottomInsetPx.value = pagination.pageBottomInsetPx;
-  pageOffsets.value = pagination.pageOffsets;
-  const totalPages = Math.max(1, pageOffsets.value.length);
-  pageCount.value = totalPages;
-  currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
+  try {
+    const { renderBrowserPreviewPages } = await import('@/services/export/engines/browserPrintEngine');
+    const renderedPages = await renderBrowserPreviewPages(payload);
+
+    if (currentVersion !== previewRenderVersion) {
+      return;
+    }
+
+    previewPageHtmlList.value = renderedPages.length > 0
+      ? renderedPages.map((page) => page.html)
+      : [EMPTY_PREVIEW_PAGE_HTML];
+
+    const totalPages = Math.max(1, previewPageHtmlList.value.length);
+    pageCount.value = totalPages;
+    currentPage.value = Math.min(Math.max(currentPage.value, 1), totalPages);
+  } catch (error) {
+    if (currentVersion !== previewRenderVersion) {
+      return;
+    }
+
+    console.error('Failed to render preview pages with export-standard pagination.', error);
+    previewPageHtmlList.value = [EMPTY_PREVIEW_PAGE_HTML];
+    pageCount.value = 1;
+    currentPage.value = 1;
+  } finally {
+    if (currentVersion === previewRenderVersion) {
+      previewRendering.value = false;
+    }
+  }
 };
 
 const scheduleRecalculate = (): void => {
@@ -231,7 +220,7 @@ const scheduleRecalculate = (): void => {
 
   resizeRafId = requestAnimationFrame(() => {
     resizeRafId = null;
-    recalculatePagination();
+    void recalculatePagination();
   });
 };
 
@@ -302,7 +291,7 @@ watch(
   { deep: true },
 );
 
-watch(printRootRef, (root, previousRoot) => {
+watch(measureRootRef, (root, previousRoot) => {
   if (resizeObserver !== null && previousRoot !== null) {
     resizeObserver.unobserve(previousRoot);
   }
@@ -320,10 +309,10 @@ onMounted(async () => {
     scheduleRecalculate();
   });
 
-  if (printRootRef.value !== null) {
-    resizeObserver.observe(printRootRef.value);
+  if (measureRootRef.value !== null) {
+    resizeObserver.observe(measureRootRef.value);
   }
-  startImageEventTracking(printRootRef.value);
+  startImageEventTracking(measureRootRef.value);
 
   window.addEventListener('resize', scheduleRecalculate);
   await nextTick();
@@ -333,6 +322,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  previewRenderVersion += 1;
+
   if (resizeRafId !== null) {
     cancelAnimationFrame(resizeRafId);
     resizeRafId = null;
@@ -380,87 +371,71 @@ onBeforeUnmount(() => {
 
     <div class="preview-pane__stage">
       <div class="preview-paper-viewer">
-        <div class="preview-page-window" :style="previewWindowStyle">
-          <header
-            class="journal-page-header-static preview-page-header-overlay"
-            :style="previewHeaderStyle"
-            aria-hidden="true"
-          >
-            <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
-            <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
-          </header>
+        <div class="preview-page-window preview-page-window--paged" :style="previewWindowStyle">
           <div
-            v-if="pageTopInsetPx > 0"
-            class="preview-page-top-mask"
-            :style="pageTopMaskStyle"
-            aria-hidden="true"
+            :key="`${currentPage}-${pageCount}`"
+            class="preview-page-rendered journal-print-pages"
+            :data-paper="store.exportSetting.paperSize"
+            :style="articleStyle"
+            v-html="currentPreviewPageHtml"
           />
-          <div class="preview-page-track" :style="pageTrackStyle">
-            <div
-              id="journal-print-root"
-              ref="printRootRef"
-              class="journal-page"
-              :data-paper="store.exportSetting.paperSize"
-              :style="articleStyle"
-            >
-              <header class="journal-page-header-static" aria-hidden="true">
-                <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
-                <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
-              </header>
-
-              <article class="journal-article">
-                <header class="journal-front">
-                  <h1 class="journal-title">{{ store.metadata.title }}</h1>
-                  <h2 v-if="store.metadata.subtitle" class="journal-subtitle">
-                    {{ store.metadata.subtitle }}
-                  </h2>
-
-                  <div class="journal-authors" v-html="authorLineHtml" />
-
-                  <div class="journal-affiliations">
-                    <p v-for="line in affiliationLines" :key="line">{{ line }}</p>
-                  </div>
-
-                  <p v-if="correspondingAuthorLine" class="journal-corresponding-author">
-                    {{ correspondingAuthorLine }}
-                  </p>
-
-                  <div v-if="store.metadata.fundings.length > 0" class="journal-funding">
-                    <strong>{{ t('preview.fundings') }}：</strong>
-                    <span>{{ store.metadata.fundings.map((item) => item.text).join('；') }}</span>
-                  </div>
-
-                  <section class="journal-abstract">
-                    <h3>{{ t('preview.abstract') }}</h3>
-                    <p>{{ store.metadata.abstract }}</p>
-                  </section>
-
-                  <section class="journal-keywords">
-                    <strong>{{ t('preview.keywords') }}:</strong>
-                    <span>{{ keywordLine }}</span>
-                  </section>
-                </header>
-
-                <section class="journal-body">
-                  <div class="markdown-body" :lang="store.locale" v-html="renderedHtml" />
-                </section>
-              </article>
-            </div>
-          </div>
-          <div
-            v-if="currentPageBottomMaskHeight > 0"
-            class="preview-page-bottom-mask"
-            :style="pageBottomMaskStyle"
-            aria-hidden="true"
-          />
-          <div
-            v-if="shouldShowPreviewPageNumber"
-            class="journal-export-page-number"
-            aria-hidden="true"
-          >
-            {{ previewFooterPageLabel }}
+          <div v-if="previewRendering" class="preview-page-rendering" aria-hidden="true">
+            {{ t('export.exporting') }}
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="preview-pane__measure" aria-hidden="true">
+      <div
+        id="journal-print-root"
+        ref="measureRootRef"
+        class="journal-page"
+        :data-paper="store.exportSetting.paperSize"
+        :style="articleStyle"
+      >
+        <header class="journal-page-header-static" aria-hidden="true">
+          <span class="journal-page-header-static__left">{{ PAPER_HEADER_LEFT }}</span>
+          <span class="journal-page-header-static__right">{{ PAPER_HEADER_RIGHT }}</span>
+        </header>
+
+        <article class="journal-article">
+          <header class="journal-front">
+            <h1 class="journal-title">{{ store.metadata.title }}</h1>
+            <h2 v-if="store.metadata.subtitle" class="journal-subtitle">
+              {{ store.metadata.subtitle }}
+            </h2>
+
+            <div class="journal-authors" v-html="authorLineHtml" />
+
+            <div class="journal-affiliations">
+              <p v-for="line in affiliationLines" :key="line">{{ line }}</p>
+            </div>
+
+            <p v-if="correspondingAuthorLine" class="journal-corresponding-author">
+              {{ correspondingAuthorLine }}
+            </p>
+
+            <div v-if="store.metadata.fundings.length > 0" class="journal-funding">
+              <strong>{{ t('preview.fundings') }}：</strong>
+              <span>{{ store.metadata.fundings.map((item) => item.text).join('；') }}</span>
+            </div>
+
+            <section class="journal-abstract">
+              <h3>{{ t('preview.abstract') }}</h3>
+              <p>{{ store.metadata.abstract }}</p>
+            </section>
+
+            <section class="journal-keywords">
+              <strong>{{ t('preview.keywords') }}:</strong>
+              <span>{{ keywordLine }}</span>
+            </section>
+          </header>
+
+          <section class="journal-body">
+            <div class="markdown-body" :lang="store.locale" v-html="renderedBodyHtml" />
+          </section>
+        </article>
       </div>
     </div>
   </section>

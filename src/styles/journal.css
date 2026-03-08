@@ -425,6 +425,7 @@ body.theme-dark .top-bar__github-link:hover {
 }
 
 .preview-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -500,6 +501,66 @@ body.theme-dark .preview-pane__stage {
   box-shadow: var(--jp-shadow-paper);
 }
 
+.preview-page-window--paged {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.preview-page-rendered {
+  width: 100%;
+  height: 100%;
+}
+
+.preview-page-rendered > .pagedjs_page {
+  margin: 0 !important;
+  background: #ffffff;
+  box-shadow: none !important;
+}
+
+.preview-page-rendered .pagedjs_sheet {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.preview-page-rendering {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 6;
+  padding: 4px 10px;
+  background: rgba(47, 111, 228, 0.92);
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.preview-pane__measure {
+  position: absolute;
+  top: 0;
+  left: -99999px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.journal-page--preview-fragment .journal-article > .journal-front:first-child > :first-child,
+.journal-page--preview-fragment .journal-article > .journal-body:first-child > .markdown-body > :first-child {
+  margin-top: 0 !important;
+}
+
+.journal-page--preview-fragment .journal-article > .journal-body:first-child {
+  margin-top: 0;
+}
+
+.journal-page--preview-fragment .preview-fragment__continuation {
+  text-indent: 0;
+}
+
+.journal-page--preview-fragment .preview-fragment__split-tail {
+  margin-bottom: 0;
+  text-align-last: left;
+}
+
 .preview-page-track {
   position: relative;
   top: 0;
@@ -508,7 +569,7 @@ body.theme-dark .preview-pane__stage {
 
 .preview-page-header-overlay {
   position: absolute;
-  top: 4mm;
+  top: max(4mm, calc(var(--paper-margin-top, 25mm) - 8.5mm));
   z-index: 2;
 }
 
@@ -567,7 +628,7 @@ body.theme-dark .preview-pane__stage {
   position: absolute;
   left: var(--paper-margin-left, 25mm);
   right: var(--paper-margin-right, 25mm);
-  top: 4mm;
+  top: max(4mm, calc(var(--paper-margin-top, 25mm) - 8.5mm));
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -575,7 +636,7 @@ body.theme-dark .preview-pane__stage {
   padding-bottom: 2mm;
   border-bottom: 1px solid #52525b;
   color: #27272a;
-  font-size: 8.9pt;
+  font-size: 10pt;
   font-family: var(--font-times), var(--font-cjk);
   pointer-events: none;
 }
@@ -683,6 +744,7 @@ body.canvas-exporting .journal-page-header-static {
 .journal-keywords span {
   margin: 0;
   text-align: justify;
+  text-align-last: left;
 }
 
 .journal-keywords strong {
@@ -726,6 +788,7 @@ body.canvas-exporting .journal-page-header-static {
   margin: 0 0 0.6em;
   text-indent: var(--body-paragraph-indent, 2em);
   overflow-wrap: anywhere;
+  text-align-last: left;
   orphans: 3;
   widows: 3;
 }
@@ -793,7 +856,9 @@ body.canvas-exporting .journal-page-header-static {
 .markdown-body .md-reference-list,
 .markdown-body .md-table-caption,
 .markdown-body table,
+.markdown-body table > caption,
 .markdown-body .md-figure,
+.markdown-body figure,
 .markdown-body .katex-display,
 .markdown-body .katex-display-block {
   break-inside: avoid;
@@ -806,6 +871,7 @@ body.canvas-exporting .journal-page-header-static {
 .markdown-body pre,
 .markdown-body .md-reference-list,
 .markdown-body .md-table-caption,
+.markdown-body table > caption,
 .markdown-body table {
   margin: 0 0 0.7em;
   text-indent: 0;
@@ -839,6 +905,7 @@ body.canvas-exporting .journal-page-header-static {
 }
 
 .markdown-body li {
+  text-align-last: left;
   orphans: 3;
   widows: 3;
 }
@@ -894,24 +961,42 @@ body.canvas-exporting .journal-page-header-static {
 }
 
 .markdown-body .md-table-caption {
+  display: block;
+  width: 100%;
   margin: 0 0 0.3em;
   text-indent: 0;
   font-size: 0.9em;
   color: #3f3f46;
-  text-align: center;
+  text-align: center !important;
   break-after: avoid-page;
   page-break-after: avoid;
   counter-increment: table;
 }
 
-.markdown-body .md-table-caption::before {
+.markdown-body table > caption {
+  display: table-caption;
+  caption-side: top;
+  width: 100%;
+  margin: 0 0 0.3em;
+  text-indent: 0;
+  font-size: 0.9em;
+  color: #3f3f46;
+  text-align: center !important;
+  break-after: avoid-page;
+  page-break-after: avoid;
+  counter-increment: table;
+}
+
+.markdown-body .md-table-caption::before,
+.markdown-body table > caption::before {
   content: 'Table ' counter(table) ': ';
   color: #27272a;
   font-family: var(--font-times), serif;
   font-weight: 600;
 }
 
-.markdown-body .md-table-caption + table {
+.markdown-body .md-table-caption + table,
+.markdown-body table > caption + * {
   break-before: avoid-page;
   page-break-before: avoid;
 }
@@ -929,13 +1014,19 @@ body.canvas-exporting .journal-page-header-static {
   font-weight: 700;
 }
 
-.md-figure {
-  margin: 0 0 0.8em;
-  text-align: center;
+.md-figure,
+.markdown-body figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin: 0 auto 0.8em;
+  text-align: center !important;
   counter-increment: figure;
 }
 
-.md-figure img {
+.md-figure img,
+.markdown-body figure img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -943,14 +1034,21 @@ body.canvas-exporting .journal-page-header-static {
   margin: 0 auto;
 }
 
-.md-figure figcaption {
+.md-figure figcaption,
+.md-figure-caption,
+.markdown-body figure figcaption {
+  display: block;
+  width: 100%;
   margin-top: 4px;
+  margin-left: auto;
+  margin-right: auto;
   font-size: 0.88em;
   color: #3f3f46;
-  text-align: center;
+  text-align: center !important;
 }
 
-.md-figure figcaption::before {
+.md-figure figcaption::before,
+.markdown-body figure figcaption::before {
   content: 'Figure ' counter(figure) ': ';
   color: #27272a;
   font-family: var(--font-times), serif;
@@ -958,11 +1056,14 @@ body.canvas-exporting .journal-page-header-static {
 }
 
 .markdown-body .katex-display-block {
+  display: grid;
+  grid-template-columns: minmax(3.1em, 1fr) auto minmax(3.1em, 1fr);
+  align-items: center;
   margin: 0 0 0.86em;
   text-indent: 0;
+  text-align: center !important;
   overflow: visible;
   position: relative;
-  padding-right: 3.1em;
   padding-top: 0.06em;
   padding-bottom: 0.12em;
   counter-increment: equation;
@@ -970,22 +1071,26 @@ body.canvas-exporting .journal-page-header-static {
 
 .markdown-body .katex-display-block::after {
   content: '(' counter(equation) ')';
-  position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
+  grid-column: 3;
+  justify-self: end;
+  align-self: center;
   color: #3f3f46;
   font-size: 0.88em;
   font-family: var(--font-times), var(--font-cjk);
 }
 
 .markdown-body .katex-display {
-  margin: 0.7em 0;
+  grid-column: 2;
+  margin: 0;
   text-indent: 0;
+  text-align: center !important;
 }
 
 .markdown-body .katex-display > .katex {
+  display: block;
+  margin: 0 auto;
   text-indent: 0;
+  text-align: center !important;
 }
 
 .markdown-body .katex .katex-mathml {
@@ -1027,6 +1132,242 @@ body.canvas-exporting .journal-page-header-static {
 
 .markdown-body .journal-heading-appendix {
   letter-spacing: 0.01em;
+}
+
+.journal-export-root--browser {
+  width: auto;
+  min-height: 0;
+}
+
+.journal-print-source {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.journal-print-pages {
+  color: #111827;
+  background: #ffffff;
+}
+
+.journal-print-pages .pagedjs_page {
+  margin: 0 auto 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.journal-print-pages .pagedjs_sheet,
+.journal-print-pages .pagedjs_pagebox {
+  position: relative;
+}
+
+.journal-print-pages .journal-article[data-split-from] > .journal-body,
+.journal-print-pages .journal-body[data-split-from],
+body.browser-print-exporting .journal-article[data-split-from] > .journal-body,
+body.browser-print-exporting .journal-body[data-split-from] {
+  margin-top: 0 !important;
+}
+
+.journal-print-pages .journal-article[data-split-from] > .journal-body > .markdown-body > :first-child,
+.journal-print-pages .journal-body[data-split-from] > .markdown-body > :first-child,
+body.browser-print-exporting .journal-article[data-split-from] > .journal-body > .markdown-body > :first-child,
+body.browser-print-exporting .journal-body[data-split-from] > .markdown-body > :first-child {
+  margin-top: 0 !important;
+}
+
+.journal-print-running-header {
+  position: absolute;
+  left: var(--paper-margin-left, 25mm);
+  right: var(--paper-margin-right, 25mm);
+  top: max(4mm, calc(var(--paper-margin-top, 25mm) - 8.5mm));
+  z-index: 4;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 2mm;
+  border-bottom: 1px solid #52525b;
+  color: #27272a;
+  font-size: 10pt;
+  font-family: var(--font-times), var(--font-cjk);
+}
+
+.journal-print-running-header__left {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.journal-print-running-header__right {
+  flex: 0 1 55%;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.journal-print-running-footer {
+  position: absolute;
+  left: var(--paper-margin-left, 25mm);
+  right: var(--paper-margin-right, 25mm);
+  bottom: 3.8mm;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #3f3f46;
+  font-size: 8.6pt;
+  font-family: var(--font-times), var(--font-cjk);
+}
+
+.journal-print-running-footer__left {
+  text-align: left;
+}
+
+.journal-print-running-footer__center {
+  text-align: center;
+}
+
+.journal-print-running-footer__right {
+  text-align: right;
+}
+
+body.browser-print-exporting {
+  background: #ffffff !important;
+}
+
+body.browser-print-exporting > :not(#journal-export-root) {
+  display: none !important;
+}
+
+body.browser-print-exporting #journal-export-root {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  pointer-events: auto !important;
+  z-index: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: #ffffff !important;
+}
+
+body.browser-print-exporting .journal-print-pages,
+body.browser-print-exporting .journal-print-pages .pagedjs_pages {
+  width: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  transform: none !important;
+  background: #ffffff !important;
+  overflow: visible !important;
+}
+
+body.browser-print-exporting .journal-print-pages .pagedjs_page {
+  margin: 0 !important;
+  box-shadow: none !important;
+  break-after: page;
+  page-break-after: always;
+}
+
+body.browser-print-exporting .journal-print-pages .pagedjs_sheet {
+  margin: 0;
+  padding: 0;
+}
+
+body.browser-print-exporting .katex-display,
+body.browser-print-exporting .katex-display > .katex {
+  overflow: visible !important;
+}
+
+.journal-print-pages [data-align-last-split-element='justify'],
+body.browser-print-exporting [data-align-last-split-element='justify'] {
+  text-align-last: left !important;
+}
+
+.journal-page--preview-fragment .md-table-caption,
+.journal-page--preview-fragment table > caption,
+.journal-page--preview-fragment .md-figure,
+.journal-page--preview-fragment figure,
+.journal-page--preview-fragment .md-figure figcaption,
+.journal-page--preview-fragment figure figcaption,
+.journal-page--preview-fragment .katex-display-block,
+.journal-page--preview-fragment .katex-display,
+.journal-page--preview-fragment .katex-display > .katex,
+.journal-print-pages .md-table-caption,
+.journal-print-pages table > caption,
+.journal-print-pages .md-figure,
+.journal-print-pages figure,
+.journal-print-pages .md-figure figcaption,
+.journal-print-pages figure figcaption,
+.journal-print-pages .katex-display-block,
+.journal-print-pages .katex-display,
+.journal-print-pages .katex-display > .katex,
+body.browser-print-exporting .md-table-caption,
+body.browser-print-exporting table > caption,
+body.browser-print-exporting .md-figure,
+body.browser-print-exporting figure,
+body.browser-print-exporting .md-figure figcaption,
+body.browser-print-exporting figure figcaption,
+body.browser-print-exporting .katex-display-block,
+body.browser-print-exporting .katex-display,
+body.browser-print-exporting .katex-display > .katex {
+  text-align: center !important;
+}
+
+@media print {
+  @page {
+    margin: 0;
+  }
+
+  body.browser-print-exporting {
+    background: #ffffff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.browser-print-exporting > :not(#journal-export-root) {
+    display: none !important;
+  }
+
+  body.browser-print-exporting #journal-export-root {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
+    z-index: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  body.browser-print-exporting .journal-print-source {
+    display: none !important;
+  }
+
+  body.browser-print-exporting .journal-print-pages,
+  body.browser-print-exporting .journal-print-pages .pagedjs_pages {
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  body.browser-print-exporting .journal-print-pages .pagedjs_page {
+    margin: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
 }
 
 .app-mobile-segment {
