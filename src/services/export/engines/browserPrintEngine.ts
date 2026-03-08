@@ -136,16 +136,6 @@ const scaleDisplayMathBlocks = (
 };
 
 const forceCenterAlignedBlocks = (root: HTMLElement): void => {
-  const tableCaptions = Array.from(root.querySelectorAll<HTMLElement>('.md-table-caption, table > caption'));
-  tableCaptions.forEach((caption) => {
-    caption.style.display = caption.tagName === 'CAPTION' ? 'table-caption' : 'block';
-    if (caption.tagName === 'CAPTION') {
-      caption.style.captionSide = 'top';
-    }
-    caption.style.width = '100%';
-    caption.style.textAlign = 'center';
-  });
-
   const figures = Array.from(root.querySelectorAll<HTMLElement>('.md-figure, figure'));
   figures.forEach((figure) => {
     figure.style.display = 'flex';
@@ -167,7 +157,9 @@ const forceCenterAlignedBlocks = (root: HTMLElement): void => {
   const figureCaptions = Array.from(root.querySelectorAll<HTMLElement>('.md-figure figcaption, .md-figure-caption, figure figcaption'));
   figureCaptions.forEach((caption) => {
     caption.style.display = 'block';
-    caption.style.width = '100%';
+    caption.style.width = 'fit-content';
+    caption.style.maxWidth = '100%';
+    caption.style.alignSelf = 'center';
     caption.style.marginLeft = 'auto';
     caption.style.marginRight = 'auto';
     caption.style.textAlign = 'center';

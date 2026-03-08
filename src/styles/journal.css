@@ -1038,7 +1038,9 @@ body.canvas-exporting .journal-page-header-static {
 .md-figure-caption,
 .markdown-body figure figcaption {
   display: block;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
+  align-self: center;
   margin-top: 4px;
   margin-left: auto;
   margin-right: auto;
@@ -1291,29 +1293,26 @@ body.browser-print-exporting [data-align-last-split-element='justify'] {
   text-align-last: left !important;
 }
 
-.journal-page--preview-fragment .md-table-caption,
-.journal-page--preview-fragment table > caption,
 .journal-page--preview-fragment .md-figure,
 .journal-page--preview-fragment figure,
 .journal-page--preview-fragment .md-figure figcaption,
+.journal-page--preview-fragment .md-figure-caption,
 .journal-page--preview-fragment figure figcaption,
 .journal-page--preview-fragment .katex-display-block,
 .journal-page--preview-fragment .katex-display,
 .journal-page--preview-fragment .katex-display > .katex,
-.journal-print-pages .md-table-caption,
-.journal-print-pages table > caption,
 .journal-print-pages .md-figure,
 .journal-print-pages figure,
 .journal-print-pages .md-figure figcaption,
+.journal-print-pages .md-figure-caption,
 .journal-print-pages figure figcaption,
 .journal-print-pages .katex-display-block,
 .journal-print-pages .katex-display,
 .journal-print-pages .katex-display > .katex,
-body.browser-print-exporting .md-table-caption,
-body.browser-print-exporting table > caption,
 body.browser-print-exporting .md-figure,
 body.browser-print-exporting figure,
 body.browser-print-exporting .md-figure figcaption,
+body.browser-print-exporting .md-figure-caption,
 body.browser-print-exporting figure figcaption,
 body.browser-print-exporting .katex-display-block,
 body.browser-print-exporting .katex-display,
