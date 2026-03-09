@@ -1,11 +1,23 @@
-import type { PhrasingContent, RootContent } from 'mdast';
+import type { RootContent } from 'mdast';
+import type { Math as MdastMath } from 'mdast-util-math';
 import type { TypstManuscriptDocument } from '@/services/document/typstModel';
-import { escapeTypstText, trimParagraph } from '@/services/typst/escape';
+import { escapeTypstPlainText, escapeTypstText, trimParagraph } from '@/services/typst/escape';
+import { readMiTexConversionResult } from '@/services/typst/mitex';
 import {
   extractPlainTextFromNodes,
   renderInlineNodes,
+  type TypstInlineNode,
   type TypstRenderContext,
 } from '@/services/typst/render/inline';
+
+interface TypstPositionPoint {
+  line?: number;
+}
+
+interface TypstNodePosition {
+  start?: TypstPositionPoint;
+  end?: TypstPositionPoint;
+}
 
 interface TypstBlockquoteNode {
   type: 'blockquote';
@@ -27,7 +39,7 @@ interface TypstFootnoteDefinitionNode {
 interface TypstHeadingNode {
   type: 'heading';
   depth: number;
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
 }
 
 interface TypstHtmlNode {
@@ -39,6 +51,7 @@ interface TypstListItemNode {
   type: 'listItem';
   checked?: boolean | null;
   children: RootContent[];
+  position?: TypstNodePosition;
 }
 
 interface TypstListNode {
@@ -49,14 +62,18 @@ interface TypstListNode {
   children: TypstListItemNode[];
 }
 
+interface TypstMathNode extends MdastMath {
+  type: 'math';
+}
+
 interface TypstParagraphNode {
   type: 'paragraph';
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
 }
 
 interface TypstTableCellNode {
   type: 'tableCell';
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
 }
 
 interface TypstTableRowNode {
@@ -66,6 +83,7 @@ interface TypstTableRowNode {
 
 interface TypstTableNode {
   type: 'table';
+  align?: Array<'left' | 'right' | 'center' | null> | null;
   children: TypstTableRowNode[];
 }
 
@@ -74,6 +92,7 @@ interface BlockRenderState {
 }
 
 const referenceHeadingPattern = /^(references|reference|参考文献)$/u;
+const orderedListMarkerPattern = /^\s*(\d+)[.)]\s+/u;
 
 const indentLines = (lines: string[], spaces: number): string[] => {
   const indent = ' '.repeat(spaces);
@@ -91,6 +110,15 @@ const compactLines = (lines: string[]): string[] => {
 
   return trimmed.filter((line, index, all) => !(line.length === 0 && all[index - 1] === ''));
 };
+
+const getLineNumber = (value: number | undefined): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const getNodeStartLine = (node: { position?: TypstNodePosition }): number | null =>
+  getLineNumber(node.position?.start?.line);
+
+const getNodeEndLine = (node: { position?: TypstNodePosition }): number | null =>
+  getLineNumber(node.position?.end?.line);
 
 const isReferenceHeading = (node: TypstHeadingNode): boolean =>
   referenceHeadingPattern.test(trimParagraph(extractPlainTextFromNodes(node.children)).toLowerCase());
@@ -136,6 +164,16 @@ const renderHeading = (
   return [`${marker} ${headingText}`.trimEnd()];
 };
 
+const normalizeTableAlign = (
+  align: TypstTableNode['align'],
+  columns: number,
+): string[] => {
+  const values = align ?? [];
+  return Array.from({ length: columns }, (_item, index) => values[index] ?? 'auto');
+};
+
+const renderTableCell = (content: string): string => `[${content}]`;
+
 const renderTable = (
   node: TypstTableNode,
   context: TypstRenderContext,
@@ -147,9 +185,28 @@ const renderTable = (
     })),
   );
   const columns = Math.max(1, ...rows.map((row) => row.length));
-  const rowLines = rows.map((row) => `  [${row.join('], [')}]`).join(',\n');
+  const aligned = normalizeTableAlign(node.align, columns);
+  const paddedRows = rows.map((row) => [
+    ...row,
+    ...Array.from({ length: columns - row.length }, () => ''),
+  ]);
+  const lines = ['#table(', `  columns: ${columns},`];
 
-  return [`#table(columns: ${columns},`, rowLines, ')'];
+  if (aligned.some((item) => item !== 'auto')) {
+    lines.push(`  align: (${aligned.join(', ')}),`);
+  }
+
+  const headerRow = paddedRows[0];
+  if (headerRow !== undefined) {
+    lines.push(`  table.header(${headerRow.map((cell) => renderTableCell(cell)).join(', ')}),`);
+  }
+
+  paddedRows.slice(1).forEach((row) => {
+    lines.push(`  ${row.map((cell) => renderTableCell(cell)).join(', ')},`);
+  });
+
+  lines.push(')');
+  return lines;
 };
 
 const renderCode = (node: TypstCodeNode): string[] => {
@@ -161,56 +218,141 @@ const renderCode = (node: TypstCodeNode): string[] => {
   return [`#raw(block: true, lang: ${JSON.stringify((node.lang ?? '').trim() || 'text')}, ${JSON.stringify(content)})`];
 };
 
-const renderListItem = (
+const filterRenderableListItemBlocks = (node: TypstListItemNode): RootContent[] =>
+  node.children.filter((child) => child.type !== 'footnoteDefinition' && child.type !== 'definition');
+
+const wrapContentBlock = (lines: string[]): string[] => {
+  const compacted = compactLines(lines);
+  if (compacted.length === 0) {
+    return ['[]'];
+  }
+
+  if (compacted.length === 1) {
+    return [`[${compacted[0]}]`];
+  }
+
+  return [
+    '[',
+    ...indentLines(compacted, 2),
+    ']',
+  ];
+};
+
+const formatFunctionArgument = (lines: string[]): string[] => {
+  if (lines.length === 0) {
+    return ['  [],'];
+  }
+
+  if (lines.length === 1) {
+    return [`  ${lines[0]},`];
+  }
+
+  const formatted = [...lines];
+  formatted[formatted.length - 1] = `${formatted[formatted.length - 1]},`;
+  return indentLines(formatted, 2);
+};
+
+const applyTaskPrefix = (lines: string[], node: TypstListItemNode): string[] => {
+  const prefix = node.checked === true ? '[x] ' : node.checked === false ? '[ ] ' : '';
+  if (prefix.length === 0) {
+    return lines;
+  }
+
+  const nextLines = [...lines];
+  const firstContentIndex = nextLines.findIndex((line) => line.length > 0);
+  if (firstContentIndex === -1) {
+    return [prefix.trimEnd()];
+  }
+
+  nextLines[firstContentIndex] = `${prefix}${nextLines[firstContentIndex]}`;
+  return nextLines;
+};
+
+const renderListItemBlock = (
   node: TypstListItemNode,
-  marker: string,
   context: TypstRenderContext,
   state: BlockRenderState,
 ): string[] => {
-  const childBlocks = node.children.filter((child) => child.type !== 'footnoteDefinition' && child.type !== 'definition');
-  const taskPrefix = node.checked === true ? '[x] ' : node.checked === false ? '[ ] ' : '';
-
+  const childBlocks = filterRenderableListItemBlocks(node);
   if (childBlocks.length === 0) {
-    return [`${marker}${taskPrefix}`.trimEnd()];
+    return wrapContentBlock(applyTaskPrefix([], node));
   }
 
-  const firstChild = childBlocks[0];
-  if (firstChild === undefined) {
-    return [`${marker}${taskPrefix}`.trimEnd()];
-  }
+  const rendered = renderBlocks(childBlocks, context, state);
+  return wrapContentBlock(applyTaskPrefix(rendered, node));
+};
 
-  const restChildren = childBlocks.slice(1);
-  const lines: string[] = [];
+const hasListGap = (previous: TypstListItemNode, next: TypstListItemNode): boolean => {
+  const previousEnd = getNodeEndLine(previous);
+  const nextStart = getNodeStartLine(next);
+  return previousEnd !== null && nextStart !== null && nextStart - previousEnd > 1;
+};
 
-  if (firstChild.type === 'paragraph') {
-    const paragraph = renderInlineNodes((firstChild as TypstParagraphNode).children, context, {
-      inReferenceSection: state.inReferenceSection,
-      stripLeadingReferenceMarker: state.inReferenceSection,
-    });
-    const firstLine = `${marker}${taskPrefix}${paragraph}`.trimEnd();
-    lines.push(firstLine.length > 0 ? firstLine : marker.trimEnd());
-  } else {
-    lines.push(`${marker}${taskPrefix}`.trimEnd());
-    const renderedFirst = renderBlockNode(firstChild, context, state);
-    if (renderedFirst.length > 0) {
-      lines.push(...indentLines(renderedFirst, 2));
-    }
-  }
+const splitListSegments = (items: TypstListItemNode[]): TypstListItemNode[][] => {
+  const segments: TypstListItemNode[][] = [];
+  let current: TypstListItemNode[] = [];
 
-  restChildren.forEach((child) => {
-    const rendered = renderBlockNode(child, context, state);
-    if (rendered.length === 0) {
-      return;
+  items.forEach((item, index) => {
+    const previous = items[index - 1];
+    if (previous !== undefined && hasListGap(previous, item) && current.length > 0) {
+      segments.push(current);
+      current = [];
     }
 
-    if (child.type !== 'list' && lines[lines.length - 1] !== '') {
-      lines.push('');
-    }
-
-    lines.push(...indentLines(rendered, 2));
+    current.push(item);
   });
 
-  return compactLines(lines);
+  if (current.length > 0) {
+    segments.push(current);
+  }
+
+  return segments;
+};
+
+const readOrderedSegmentStart = (
+  firstItem: TypstListItemNode,
+  fallback: number,
+  document: TypstManuscriptDocument,
+): number => {
+  const startLine = getNodeStartLine(firstItem);
+  if (startLine === null) {
+    return fallback;
+  }
+
+  const sourceLine = document.normalizedSource.split(/\r?\n/u)[startLine - 1] ?? '';
+  const matched = sourceLine.match(orderedListMarkerPattern);
+  if (matched === null) {
+    return fallback;
+  }
+
+  const parsed = Number(matched[1]);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const renderListSegment = (
+  items: TypstListItemNode[],
+  node: TypstListNode,
+  context: TypstRenderContext,
+  state: BlockRenderState,
+): string[] => {
+  const lines = [node.ordered ? '#enum(' : '#list('];
+  if (node.ordered) {
+    const fallbackStart = node.start ?? 1;
+    const firstItem = items[0];
+    const start = firstItem === undefined
+      ? fallbackStart
+      : readOrderedSegmentStart(firstItem, fallbackStart, context.document);
+    if (start !== 1) {
+      lines.push(`  start: ${start},`);
+    }
+  }
+
+  items.forEach((item) => {
+    lines.push(...formatFunctionArgument(renderListItemBlock(item, context, state)));
+  });
+
+  lines.push(')');
+  return lines;
 };
 
 const renderList = (
@@ -218,21 +360,19 @@ const renderList = (
   context: TypstRenderContext,
   state: BlockRenderState,
 ): string[] => {
+  const segments = splitListSegments(node.children);
   const lines: string[] = [];
-  const start = node.start ?? 1;
 
-  node.children.forEach((child, index) => {
-    const marker = node.ordered ? `${start + index}. ` : '- ';
-    const rendered = renderListItem(child, marker, context, state);
-    if (rendered.length === 0) {
+  segments.forEach((segment, index) => {
+    if (segment.length === 0) {
       return;
     }
 
-    if (node.spread && index > 0 && lines[lines.length - 1] !== '') {
+    if (index > 0) {
       lines.push('');
     }
 
-    lines.push(...rendered);
+    lines.push(...renderListSegment(segment, node, context, state));
   });
 
   return compactLines(lines);
@@ -260,6 +400,31 @@ const renderBlockquote = (
 const renderHtml = (node: TypstHtmlNode): string[] => {
   const text = trimParagraph(node.value);
   return text.length > 0 ? [escapeTypstText(text)] : [];
+};
+
+const renderMiTexErrorBlock = (value: string): string[] => [
+  `#text(fill: red)[${escapeTypstPlainText(value)}]`,
+];
+
+const renderMathBlock = (node: TypstMathNode): string[] => {
+  const converted = readMiTexConversionResult(node);
+  if (converted?.status !== 'ok') {
+    const raw = converted?.raw ?? node.value;
+    return renderMiTexErrorBlock(`$$${raw}$$`);
+  }
+
+  const lines = converted.code.split(/\r?\n/gu);
+  if (lines.length === 1) {
+    return [`#math.equation(block: true, $${lines[0]}$)`];
+  }
+
+  return [
+    '#math.equation(block: true,',
+    '  $',
+    ...indentLines(lines, 2),
+    '  $',
+    ')',
+  ];
 };
 
 const renderFallbackBlock = (node: RootContent): string[] => {
@@ -294,6 +459,10 @@ const renderBlockNode = (
 
   if (node.type === 'table') {
     return renderTable(node as TypstTableNode, context, state);
+  }
+
+  if (node.type === 'math') {
+    return renderMathBlock(node as TypstMathNode);
   }
 
   if (node.type === 'thematicBreak') {

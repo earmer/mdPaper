@@ -6,6 +6,19 @@ export const escapeTypstText = (input: string): string => input
   .replace(/\*/gu, '\\*')
   .replace(/_/gu, '\\_');
 
+const typstPlainTextEscapeMap: Record<string, string> = {
+  '\\': '\\\\',
+  '#': '\\#',
+  '[': '\\[',
+  ']': '\\]',
+  '*': '\\*',
+  '_': '\\_',
+  '$': '\\$',
+};
+
+export const escapeTypstPlainText = (input: string): string =>
+  input.replace(/[\\#\[\]\*_$]/gu, (character) => typstPlainTextEscapeMap[character] ?? character);
+
 export const trimParagraph = (input: string): string => input.replace(/\s+/gu, ' ').trim();
 
 export const stringifyTypstValue = (value: string): string => JSON.stringify(value);

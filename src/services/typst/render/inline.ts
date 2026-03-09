@@ -1,17 +1,20 @@
 import type { PhrasingContent, RootContent } from 'mdast';
+import type { InlineMath } from 'mdast-util-math';
 import type { TypstManuscriptDocument } from '@/services/document/typstModel';
 import {
   replaceCitationSyntax,
   stripReferenceMarker,
 } from '@/services/document/citation';
 import {
+  escapeTypstPlainText,
   escapeTypstText,
   trimParagraph,
 } from '@/services/typst/escape';
+import { readMiTexConversionResult } from '@/services/typst/mitex';
 
 interface TypstDeleteNode {
   type: 'delete';
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
 }
 
 interface TypstFootnoteDefinitionNode {
@@ -37,9 +40,13 @@ interface TypstInlineCodeNode {
   value: string;
 }
 
+interface TypstInlineMathNode extends InlineMath {
+  type: 'inlineMath';
+}
+
 interface TypstLinkNode {
   type: 'link';
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
   url: string;
 }
 
@@ -50,8 +57,15 @@ interface TypstLiteralNode {
 
 interface TypstParentNode {
   type: 'emphasis' | 'strong';
-  children: PhrasingContent[];
+  children: TypstInlineNode[];
 }
+
+export interface TypstScriptNode {
+  type: 'subscript' | 'superscript';
+  children: TypstInlineNode[];
+}
+
+export type TypstInlineNode = PhrasingContent | TypstInlineMathNode | TypstScriptNode;
 
 interface InlineRenderOptions {
   inReferenceSection: boolean;
@@ -158,6 +172,19 @@ const renderFallbackText = (
   stripLeadingReferenceMarker: boolean,
 ): string => renderTextValue(value, context, options, stripLeadingReferenceMarker);
 
+const renderMiTexErrorText = (value: string): string =>
+  `#text(fill: red)[${escapeTypstPlainText(value)}]`;
+
+const renderInlineMath = (node: TypstInlineMathNode): string => {
+  const converted = readMiTexConversionResult(node);
+  if (converted?.status === 'ok') {
+    return `$${converted.code}$`;
+  }
+
+  const raw = converted?.raw ?? node.value;
+  return renderMiTexErrorText(`$${raw}$`);
+};
+
 export const extractPlainTextFromNode = (node: PlainTextNode): string => {
   if (node.type === 'text' || node.type === 'inlineCode' || node.type === 'html' || node.type === 'code') {
     return normalizeInlineText(node.value ?? '');
@@ -165,6 +192,14 @@ export const extractPlainTextFromNode = (node: PlainTextNode): string => {
 
   if (node.type === 'image') {
     return normalizeInlineText(node.alt ?? '');
+  }
+
+  if (node.type === 'inlineMath') {
+    return normalizeInlineText(`$${node.value ?? ''}$`);
+  }
+
+  if (node.type === 'math') {
+    return normalizeInlineText(`$$${node.value ?? ''}$$`);
   }
 
   if (node.type === 'break') {
@@ -183,7 +218,7 @@ export const extractPlainTextFromNode = (node: PlainTextNode): string => {
 };
 
 export const extractPlainTextFromNodes = (
-  nodes: Array<RootContent | PhrasingContent> | null | undefined,
+  nodes: Array<RootContent | TypstInlineNode> | null | undefined,
 ): string => {
   if (nodes === undefined || nodes === null) {
     return '';
@@ -193,7 +228,7 @@ export const extractPlainTextFromNodes = (
 };
 
 export const renderInlineNodes = (
-  nodes: PhrasingContent[] | null | undefined,
+  nodes: TypstInlineNode[] | null | undefined,
   context: TypstRenderContext,
   options: InlineRenderOptions,
 ): string => {
@@ -207,6 +242,12 @@ export const renderInlineNodes = (
   nodes.forEach((node) => {
     if (node.type === 'text') {
       content += renderTextValue(node.value, context, options, shouldStripReferenceMarker);
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'inlineMath') {
+      content += renderInlineMath(node as TypstInlineMathNode);
       shouldStripReferenceMarker = false;
       return;
     }
@@ -241,6 +282,17 @@ export const renderInlineNodes = (
         inReferenceSection: options.inReferenceSection,
       });
       content += `#strike[${inner}]`;
+      shouldStripReferenceMarker = false;
+      return;
+    }
+
+    if (node.type === 'superscript' || node.type === 'subscript') {
+      const script = node as TypstScriptNode;
+      const inner = renderInlineNodes(script.children, context, {
+        inReferenceSection: options.inReferenceSection,
+      });
+      const command = node.type === 'superscript' ? 'super' : 'sub';
+      content += `#${command}[${inner}]`;
       shouldStripReferenceMarker = false;
       return;
     }
